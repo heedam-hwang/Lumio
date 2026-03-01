@@ -1,0 +1,729 @@
+import PhotosUI
+import SwiftData
+import SwiftUI
+import UIKit
+
+private enum BookClassificationMode: String, CaseIterable, Identifiable {
+    case unclassified
+    case existing
+    case new
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .unclassified:
+            return "분류하지 않음"
+        case .existing:
+            return "기존 책 선택"
+        case .new:
+            return "새 책 생성"
+        }
+    }
+}
+
+struct ContentView: View {
+    var body: some View {
+        TabView {
+            NavigationStack {
+                HomeView()
+            }
+            .tabItem {
+                Label("홈", systemImage: "house")
+            }
+
+            NavigationStack {
+                VocabularyView()
+            }
+            .tabItem {
+                Label("단어장", systemImage: "book")
+            }
+        }
+    }
+}
+
+private struct HomeView: View {
+    private static let unclassifiedBookTitle = "분류되지 않음"
+
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: [SortDescriptor(\Book.title)]) private var books: [Book]
+
+    @State private var showUploadSourceDialog = false
+    @State private var showCamera = false
+    @State private var showPhotoPicker = false
+    @State private var selectedPhotoItem: PhotosPickerItem?
+
+    @State private var pendingImageData: Data?
+    @State private var showSavePageSheet = false
+
+    @State private var editingBook: Book?
+    @State private var editingBookTitle = ""
+    @State private var showBookRenameAlert = false
+    @State private var persistenceErrorMessage: String?
+    @State private var showPersistenceErrorAlert = false
+
+    @State private var isAnalyzingUpload = false
+    @State private var uploadErrorMessage: String?
+    @State private var showUploadErrorAlert = false
+
+    var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            Group {
+                if books.isEmpty {
+                    ContentUnavailableView {
+                        Label("아직 등록된 책이 없습니다", systemImage: "book.closed")
+                    } description: {
+                        Text("오른쪽 아래 업로드 버튼으로 책 페이지를 추가해 보세요.")
+                    }
+                } else {
+                    List(books) { book in
+                        NavigationLink {
+                            BookPagesView(book: book)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(book.title)
+                                    .font(.headline)
+                                Text("페이지 \(book.pages.count)개")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.vertical, 4)
+                        }
+                        .accessibilityHint("선택하면 책의 페이지 목록으로 이동합니다.")
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button("이름 변경") {
+                                editingBook = book
+                                editingBookTitle = book.title
+                                showBookRenameAlert = true
+                            }
+                            .tint(.blue)
+                        }
+                    }
+                    .listStyle(.plain)
+                }
+            }
+
+            Button {
+                showUploadSourceDialog = true
+            } label: {
+                Image(systemName: "plus")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 56, height: 56)
+                    .background(Circle().fill(Color.accentColor))
+                    .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 4)
+            }
+            .accessibilityLabel("책 페이지 업로드")
+            .accessibilityHint("카메라 또는 포토 라이브러리에서 책 페이지를 추가합니다.")
+            .padding(.trailing, 20)
+            .padding(.bottom, 20)
+            .disabled(isAnalyzingUpload)
+        }
+        .navigationTitle("책 목록")
+        .overlay {
+            if isAnalyzingUpload {
+                LoadingOverlayView(title: "문장/단어 감지 중")
+            }
+        }
+        .confirmationDialog("업로드 방식을 선택하세요", isPresented: $showUploadSourceDialog, titleVisibility: .visible) {
+            Button("카메라") {
+                showCamera = true
+            }
+            .disabled(!UIImagePickerController.isSourceTypeAvailable(.camera))
+
+            Button("포토 라이브러리") {
+                showPhotoPicker = true
+            }
+            Button("취소", role: .cancel) {}
+        }
+        .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhotoItem, matching: .images)
+        .onChange(of: selectedPhotoItem) { _, newItem in
+            guard let newItem else { return }
+            Task {
+                do {
+                    if let data = try await newItem.loadTransferable(type: Data.self) {
+                        await MainActor.run {
+                            prepareImageForSave(data)
+                        }
+                    } else {
+                        await MainActor.run {
+                            uploadErrorMessage = "선택한 사진을 읽을 수 없습니다."
+                            showUploadErrorAlert = true
+                        }
+                    }
+                } catch {
+                    await MainActor.run {
+                        uploadErrorMessage = "사진 불러오기에 실패했습니다. 다시 시도해 주세요."
+                        showUploadErrorAlert = true
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showCamera) {
+            CameraPicker { imageData in
+                prepareImageForSave(imageData)
+            }
+        }
+        .sheet(isPresented: $showSavePageSheet, onDismiss: {
+            pendingImageData = nil
+            selectedPhotoItem = nil
+        }) {
+            SavePageSheet(
+                books: books,
+                onCancel: {
+                    showSavePageSheet = false
+                },
+                onSave: { mode, selectedBook, newBookTitle in
+                    showSavePageSheet = false
+                    Task {
+                        await createPageAndAnalyze(
+                            mode: mode,
+                            selectedBook: selectedBook,
+                            newBookTitle: newBookTitle
+                        )
+                    }
+                }
+            )
+            .presentationDetents([.medium])
+        }
+        .alert("책 이름 변경", isPresented: $showBookRenameAlert) {
+            TextField("책 이름", text: $editingBookTitle)
+            Button("취소", role: .cancel) {}
+            Button("저장") {
+                let trimmed = editingBookTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty, let editingBook else { return }
+                editingBook.title = trimmed
+                do {
+                    try modelContext.save()
+                } catch {
+                    persistenceErrorMessage = "책 이름 저장에 실패했습니다."
+                    showPersistenceErrorAlert = true
+                }
+            }
+        } message: {
+            Text("홈 화면의 책 분류 이름을 수정합니다.")
+        }
+        .alert("저장 실패", isPresented: $showPersistenceErrorAlert, actions: {
+            Button("확인", role: .cancel) {}
+        }, message: {
+            Text(persistenceErrorMessage ?? "데이터 저장에 실패했습니다.")
+        })
+        .alert("OCR 처리 실패", isPresented: $showUploadErrorAlert, actions: {
+            Button("확인", role: .cancel) {}
+        }, message: {
+            Text(uploadErrorMessage ?? "문장/단어 감지에 실패했습니다.")
+        })
+    }
+
+    private func prepareImageForSave(_ imageData: Data) {
+        pendingImageData = imageData
+        showSavePageSheet = true
+    }
+
+    @MainActor
+    private func createPageAndAnalyze(mode: BookClassificationMode, selectedBook: Book?, newBookTitle: String) async {
+        guard let imageData = pendingImageData else { return }
+
+        isAnalyzingUpload = true
+        defer {
+            isAnalyzingUpload = false
+            pendingImageData = nil
+            selectedPhotoItem = nil
+        }
+
+        let targetBook = resolveTargetBook(
+            mode: mode,
+            selectedBook: selectedBook,
+            newBookTitle: newBookTitle
+        )
+
+        let page = Page(
+            title: makeDefaultPageTitle(),
+            createdAt: Date(),
+            imageData: imageData,
+            book: targetBook
+        )
+        modelContext.insert(page)
+
+        do {
+            try modelContext.save()
+            try await PageTextAnalyzer.analyzeIfNeeded(page: page, context: modelContext)
+        } catch {
+            uploadErrorMessage = error.localizedDescription
+            showUploadErrorAlert = true
+        }
+    }
+
+    private func resolveTargetBook(mode: BookClassificationMode, selectedBook: Book?, newBookTitle: String) -> Book {
+        switch mode {
+        case .existing:
+            if let selectedBook {
+                return selectedBook
+            }
+            return fetchOrCreateUnclassifiedBook()
+
+        case .new:
+            let trimmed = newBookTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                return fetchOrCreateUnclassifiedBook()
+            }
+
+            let createdBook = Book(title: trimmed)
+            modelContext.insert(createdBook)
+            return createdBook
+
+        case .unclassified:
+            return fetchOrCreateUnclassifiedBook()
+        }
+    }
+
+    private func fetchOrCreateUnclassifiedBook() -> Book {
+        let descriptor = FetchDescriptor<Book>(predicate: #Predicate { book in
+            book.title == "분류되지 않음"
+        })
+
+        if let existingBook = try? modelContext.fetch(descriptor).first {
+            return existingBook
+        }
+
+        let defaultBook = Book(title: HomeView.unclassifiedBookTitle)
+        modelContext.insert(defaultBook)
+        return defaultBook
+    }
+
+    private func makeDefaultPageTitle(date: Date = Date()) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ko_KR")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return "페이지 \(formatter.string(from: date))"
+    }
+}
+
+private struct BookPagesView: View {
+    @Environment(\.modelContext) private var modelContext
+    let book: Book
+
+    @State private var editingPage: Page?
+    @State private var editingPageTitle = ""
+    @State private var showPageRenameAlert = false
+    @State private var saveErrorMessage: String?
+    @State private var showSaveErrorAlert = false
+
+    private var sortedPages: [Page] {
+        book.pages.sorted { $0.createdAt > $1.createdAt }
+    }
+
+    var body: some View {
+        Group {
+            if sortedPages.isEmpty {
+                ContentUnavailableView {
+                    Label("등록된 페이지가 없습니다", systemImage: "doc")
+                } description: {
+                    Text("홈에서 업로드 버튼을 눌러 페이지를 추가해 보세요.")
+                }
+            } else {
+                List(sortedPages) { page in
+                    NavigationLink {
+                        PageDetailView(page: page)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(page.title ?? "제목 없음")
+                                .font(.headline)
+                            Text(page.createdAt.formatted(date: .numeric, time: .shortened))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 2)
+                    }
+                    .accessibilityHint("선택하면 페이지 상세 화면으로 이동합니다.")
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button("제목 변경") {
+                            editingPage = page
+                            editingPageTitle = page.title ?? ""
+                            showPageRenameAlert = true
+                        }
+                        .tint(.blue)
+                    }
+                }
+                .listStyle(.plain)
+            }
+        }
+        .navigationTitle(book.title)
+        .alert("페이지 제목 변경", isPresented: $showPageRenameAlert) {
+            TextField("페이지 제목", text: $editingPageTitle)
+            Button("취소", role: .cancel) {}
+            Button("저장") {
+                guard let editingPage else { return }
+                let trimmed = editingPageTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                editingPage.title = trimmed.isEmpty ? nil : trimmed
+                do {
+                    try modelContext.save()
+                } catch {
+                    saveErrorMessage = "페이지 제목 저장에 실패했습니다."
+                    showSaveErrorAlert = true
+                }
+            }
+        } message: {
+            Text("페이지 목록에서 보이는 제목을 수정합니다.")
+        }
+        .alert("저장 실패", isPresented: $showSaveErrorAlert, actions: {
+            Button("확인", role: .cancel) {}
+        }, message: {
+            Text(saveErrorMessage ?? "데이터 저장에 실패했습니다.")
+        })
+    }
+}
+
+private struct PageDetailView: View {
+    @Environment(\.modelContext) private var modelContext
+    let page: Page
+
+    @State private var selectedSentenceID: UUID?
+    @State private var selectedWordID: UUID?
+    @State private var selectedSentenceForSheet: SentenceItem?
+    @State private var selectedWordForSheet: VocabularyItem?
+    @State private var isAnalyzing = false
+    @State private var analyzeErrorMessage: String?
+    @State private var showAnalyzeErrorAlert = false
+
+    private var sortedSentences: [SentenceItem] {
+        page.sentences.sorted { $0.order < $1.order }
+    }
+
+    private var sortedWords: [VocabularyItem] {
+        page.vocabularies.sorted { $0.order < $1.order }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                if let data = page.imageData, let uiImage = UIImage(data: data) {
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .scaledToFit()
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                } else {
+                    ContentUnavailableView {
+                        Label("이미지가 없습니다", systemImage: "photo")
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(page.title ?? "제목 없음")
+                        .font(.title3)
+                        .fontWeight(.semibold)
+                    Text(page.createdAt.formatted(date: .abbreviated, time: .shortened))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                sentenceSection
+                wordSection
+            }
+            .padding(20)
+        }
+        .navigationTitle("페이지")
+        .navigationBarTitleDisplayMode(.inline)
+        .overlay {
+            if isAnalyzing {
+                LoadingOverlayView(title: "문장/단어 감지 중")
+            }
+        }
+        .task(id: page.id) {
+            await ensureDetectionDataIfNeeded()
+        }
+        .alert("OCR 처리 실패", isPresented: $showAnalyzeErrorAlert, actions: {
+            Button("확인", role: .cancel) {}
+        }, message: {
+            Text(analyzeErrorMessage ?? "문장/단어 감지에 실패했습니다.")
+        })
+        .sheet(item: $selectedSentenceForSheet) { sentence in
+            SentenceLookupSheet(sentence: sentence)
+                .presentationDetents([.fraction(0.5), .large])
+        }
+        .sheet(item: $selectedWordForSheet) { word in
+            WordLookupSheet(
+                word: word,
+                exampleSentence: exampleSentence(for: word)
+            )
+            .presentationDetents([.fraction(0.5), .large])
+        }
+    }
+
+    private var sentenceSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("문장")
+                .font(.headline)
+
+            if sortedSentences.isEmpty {
+                if page.isTextAnalyzed {
+                    Text("감지된 문장이 없습니다.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("문장 데이터를 준비 중입니다.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                ForEach(sortedSentences) { sentence in
+                    Button {
+                        selectedSentenceID = sentence.id
+                        selectedSentenceForSheet = sentence
+                    } label: {
+                        SentenceRowView(
+                            sentence: sentence,
+                            isSelected: selectedSentenceID == sentence.id
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private var wordSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("단어")
+                .font(.headline)
+
+            if sortedWords.isEmpty {
+                if page.isTextAnalyzed {
+                    Text("감지된 단어가 없습니다.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("단어 데이터를 준비 중입니다.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 90), spacing: 8)], spacing: 8) {
+                    ForEach(sortedWords) { word in
+                        Button {
+                            selectedWordID = word.id
+                            selectedWordForSheet = word
+                        } label: {
+                            WordChipView(
+                                text: word.word,
+                                isSelected: selectedWordID == word.id
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func ensureDetectionDataIfNeeded() async {
+        if page.isTextAnalyzed {
+            return
+        }
+
+        isAnalyzing = true
+        defer { isAnalyzing = false }
+
+        do {
+            try await PageTextAnalyzer.analyzeIfNeeded(page: page, context: modelContext)
+        } catch {
+            analyzeErrorMessage = error.localizedDescription
+            showAnalyzeErrorAlert = true
+        }
+    }
+
+    private func exampleSentence(for word: VocabularyItem) -> String? {
+        sortedSentences.first(where: { sentence in
+            sentence.text.localizedCaseInsensitiveContains(word.word)
+        })?.text
+    }
+}
+
+private struct SentenceRowView: View {
+    let sentence: SentenceItem
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text("\(sentence.order)")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(isSelected ? .white : Color.accentColor)
+                .frame(width: 24, height: 24)
+                .background(
+                    Circle()
+                        .fill(isSelected ? Color.accentColor : Color.accentColor.opacity(0.15))
+                )
+            Text(sentence.text)
+                .font(.body)
+                .multilineTextAlignment(.leading)
+                .foregroundStyle(.primary)
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("문장 \(sentence.order). \(sentence.text)")
+        .accessibilityHint("탭하면 문장 해석과 듣기 화면이 열립니다.")
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(isSelected ? Color.accentColor.opacity(0.12) : Color(.secondarySystemBackground))
+        )
+    }
+}
+
+private struct WordChipView: View {
+    let text: String
+    let isSelected: Bool
+
+    var body: some View {
+        Text(text)
+            .font(.subheadline)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .padding(.vertical, 8)
+            .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity)
+            .accessibilityLabel("단어 \(text)")
+            .accessibilityHint("탭하면 단어 뜻과 발음을 확인할 수 있습니다.")
+            .background(
+                Capsule()
+                    .fill(isSelected ? Color.accentColor.opacity(0.18) : Color(.secondarySystemBackground))
+            )
+    }
+}
+
+private struct SavePageSheet: View {
+    let books: [Book]
+    let onCancel: () -> Void
+    let onSave: (BookClassificationMode, Book?, String) -> Void
+
+    @State private var mode: BookClassificationMode = .unclassified
+    @State private var selectedBookID: UUID?
+    @State private var newBookTitle = ""
+
+    private var selectedBook: Book? {
+        guard let selectedBookID else { return nil }
+        return books.first(where: { $0.id == selectedBookID })
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("책 분류") {
+                    Picker("저장 방식", selection: $mode) {
+                        ForEach(BookClassificationMode.allCases) { value in
+                            Text(value.title).tag(value)
+                        }
+                    }
+
+                    if mode == .existing {
+                        if books.isEmpty {
+                            Text("선택 가능한 책이 없습니다. '분류하지 않음' 또는 '새 책 생성'을 사용하세요.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Picker("책 선택", selection: $selectedBookID) {
+                                Text("선택하세요").tag(UUID?.none)
+                                ForEach(books) { book in
+                                    Text(book.title).tag(UUID?.some(book.id))
+                                }
+                            }
+                        }
+                    }
+
+                    if mode == .new {
+                        TextField("새 책 이름", text: $newBookTitle)
+                    }
+                }
+            }
+            .navigationTitle("페이지 저장")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("취소") {
+                        onCancel()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("저장") {
+                        onSave(mode, selectedBook, newBookTitle)
+                    }
+                    .disabled(mode == .existing && books.isEmpty)
+                }
+            }
+        }
+    }
+}
+
+private struct LoadingOverlayView: View {
+    let title: String
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.25)
+                .ignoresSafeArea()
+            VStack(spacing: 12) {
+                ProgressView()
+                    .controlSize(.large)
+                Text(title)
+                    .font(.subheadline)
+                    .foregroundStyle(.primary)
+            }
+            .padding(20)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        }
+    }
+}
+
+private struct VocabularyView: View {
+    @Query(sort: [SortDescriptor(\SavedVocabulary.createdAt, order: .reverse)]) private var savedWords: [SavedVocabulary]
+
+    var body: some View {
+        Group {
+            if savedWords.isEmpty {
+                ContentUnavailableView {
+                    Label("단어장이 비어 있습니다", systemImage: "text.book.closed")
+                } description: {
+                    Text("단어 조회 화면에서 북마크를 눌러 단어를 저장해 보세요.")
+                }
+            } else {
+                List(savedWords) { item in
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text(item.word)
+                                .font(.headline)
+                            Spacer(minLength: 8)
+                            Button("듣기") {
+                                SpeechService.shared.speak(text: item.word)
+                            }
+                            .font(.caption)
+                            .accessibilityLabel("\(item.word) 발음 듣기")
+                        }
+
+                        if let pronunciation = item.pronunciation, !pronunciation.isEmpty {
+                            Text(pronunciation)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        if let meaning = item.meaning, !meaning.isEmpty {
+                            Text(meaning)
+                                .font(.body)
+                        }
+
+                        Text(item.createdAt.formatted(date: .numeric, time: .shortened))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                }
+                .listStyle(.plain)
+            }
+        }
+        .navigationTitle("단어장")
+    }
+}
+
+#Preview {
+    ContentView()
+}
