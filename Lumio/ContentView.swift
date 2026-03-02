@@ -48,7 +48,7 @@ private struct HomeView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: [SortDescriptor(\Book.title)]) private var books: [Book]
 
-    @State private var showUploadSourceDialog = false
+    @State private var showUploadSourceMenu = false
     @State private var showCamera = false
     @State private var showPhotoPicker = false
     @State private var selectedPhotoItem: PhotosPickerItem?
@@ -65,6 +65,7 @@ private struct HomeView: View {
     @State private var isAnalyzingUpload = false
     @State private var uploadErrorMessage: String?
     @State private var showUploadErrorAlert = false
+    @State private var customPageTitle = ""
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -103,8 +104,32 @@ private struct HomeView: View {
                 }
             }
 
+            if showUploadSourceMenu {
+                Color.black.opacity(0.001)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        showUploadSourceMenu = false
+                    }
+                    .zIndex(1)
+
+                UploadSourceMenuView(
+                    onCameraTap: {
+                        showUploadSourceMenu = false
+                        showCamera = true
+                    },
+                    onPhotoTap: {
+                        showUploadSourceMenu = false
+                        showPhotoPicker = true
+                    }
+                )
+                .padding(.trailing, 20)
+                .padding(.bottom, 86)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                .zIndex(2)
+            }
+
             Button {
-                showUploadSourceDialog = true
+                showUploadSourceMenu.toggle()
             } label: {
                 Image(systemName: "plus")
                     .font(.title3.weight(.bold))
@@ -118,23 +143,13 @@ private struct HomeView: View {
             .padding(.trailing, 20)
             .padding(.bottom, 20)
             .disabled(isAnalyzingUpload)
+            .zIndex(3)
         }
         .navigationTitle("책 목록")
         .overlay {
             if isAnalyzingUpload {
                 LoadingOverlayView(title: "문장/단어 감지 중")
             }
-        }
-        .confirmationDialog("업로드 방식을 선택하세요", isPresented: $showUploadSourceDialog, titleVisibility: .visible) {
-            Button("카메라") {
-                showCamera = true
-            }
-            .disabled(!UIImagePickerController.isSourceTypeAvailable(.camera))
-
-            Button("포토 라이브러리") {
-                showPhotoPicker = true
-            }
-            Button("취소", role: .cancel) {}
         }
         .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhotoItem, matching: .images)
         .onChange(of: selectedPhotoItem) { _, newItem in
@@ -159,17 +174,21 @@ private struct HomeView: View {
                 }
             }
         }
-        .sheet(isPresented: $showCamera) {
+        .fullScreenCover(isPresented: $showCamera) {
             CameraPicker { imageData in
                 prepareImageForSave(imageData)
             }
+            // Ensure camera UI occupies full screen without inheriting clipped safe-area layout.
+            .ignoresSafeArea()
         }
         .sheet(isPresented: $showSavePageSheet, onDismiss: {
             pendingImageData = nil
             selectedPhotoItem = nil
+            customPageTitle = ""
         }) {
             SavePageSheet(
                 books: books,
+                pageTitle: $customPageTitle,
                 onCancel: {
                     showSavePageSheet = false
                 },
@@ -179,7 +198,8 @@ private struct HomeView: View {
                         await createPageAndAnalyze(
                             mode: mode,
                             selectedBook: selectedBook,
-                            newBookTitle: newBookTitle
+                            newBookTitle: newBookTitle,
+                            pageTitle: customPageTitle
                         )
                     }
                 }
@@ -221,7 +241,12 @@ private struct HomeView: View {
     }
 
     @MainActor
-    private func createPageAndAnalyze(mode: BookClassificationMode, selectedBook: Book?, newBookTitle: String) async {
+    private func createPageAndAnalyze(
+        mode: BookClassificationMode,
+        selectedBook: Book?,
+        newBookTitle: String,
+        pageTitle: String
+    ) async {
         guard let imageData = pendingImageData else { return }
 
         isAnalyzingUpload = true
@@ -238,7 +263,7 @@ private struct HomeView: View {
         )
 
         let page = Page(
-            title: makeDefaultPageTitle(),
+            title: resolvedPageTitle(input: pageTitle),
             createdAt: Date(),
             imageData: imageData,
             book: targetBook
@@ -296,6 +321,11 @@ private struct HomeView: View {
         formatter.locale = Locale(identifier: "ko_KR")
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
         return "페이지 \(formatter.string(from: date))"
+    }
+
+    private func resolvedPageTitle(input: String) -> String {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? makeDefaultPageTitle() : trimmed
     }
 }
 
@@ -376,49 +406,36 @@ private struct BookPagesView: View {
 
 private struct PageDetailView: View {
     @Environment(\.modelContext) private var modelContext
+    @Query(sort: [SortDescriptor(\SavedVocabulary.word)]) private var savedWords: [SavedVocabulary]
     let page: Page
 
     @State private var selectedSentenceID: UUID?
-    @State private var selectedWordID: UUID?
+    @State private var selectedWordText: String?
     @State private var selectedSentenceForSheet: SentenceItem?
     @State private var selectedWordForSheet: VocabularyItem?
     @State private var isAnalyzing = false
     @State private var analyzeErrorMessage: String?
     @State private var showAnalyzeErrorAlert = false
+    @State private var showImagePreview = false
+    @State private var pageTitleDraft = ""
+    @State private var showPageRenameAlert = false
+    @State private var saveErrorMessage: String?
+    @State private var showSaveErrorAlert = false
 
     private var sortedSentences: [SentenceItem] {
         page.sentences.sorted { $0.order < $1.order }
     }
 
-    private var sortedWords: [VocabularyItem] {
-        page.vocabularies.sorted { $0.order < $1.order }
+    private var savedWordSet: Set<String> {
+        Set(savedWords.map { $0.word.lowercased() })
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                if let data = page.imageData, let uiImage = UIImage(data: data) {
-                    Image(uiImage: uiImage)
-                        .resizable()
-                        .scaledToFit()
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                } else {
-                    ContentUnavailableView {
-                        Label("이미지가 없습니다", systemImage: "photo")
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(page.title ?? "제목 없음")
-                        .font(.title3)
-                        .fontWeight(.semibold)
-                    Text(page.createdAt.formatted(date: .abbreviated, time: .shortened))
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
+                pageHeader
 
                 sentenceSection
-                wordSection
             }
             .padding(20)
         }
@@ -442,11 +459,101 @@ private struct PageDetailView: View {
                 .presentationDetents([.fraction(0.5), .large])
         }
         .sheet(item: $selectedWordForSheet) { word in
-            WordLookupSheet(
-                word: word,
-                exampleSentence: exampleSentence(for: word)
-            )
+            WordLookupSheet(word: word)
             .presentationDetents([.fraction(0.5), .large])
+        }
+        .fullScreenCover(isPresented: $showImagePreview) {
+            imagePreviewSheet
+        }
+        .alert("페이지 제목 변경", isPresented: $showPageRenameAlert) {
+            TextField("페이지 제목", text: $pageTitleDraft)
+            Button("취소", role: .cancel) {}
+            Button("저장") {
+                let trimmed = pageTitleDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                page.title = trimmed.isEmpty ? nil : trimmed
+                do {
+                    try modelContext.save()
+                } catch {
+                    saveErrorMessage = "페이지 제목 저장에 실패했습니다."
+                    showSaveErrorAlert = true
+                }
+            }
+        } message: {
+            Text("페이지 이름을 수정할 수 있습니다.")
+        }
+        .alert("저장 실패", isPresented: $showSaveErrorAlert, actions: {
+            Button("확인", role: .cancel) {}
+        }, message: {
+            Text(saveErrorMessage ?? "데이터 저장에 실패했습니다.")
+        })
+    }
+
+    private var pageHeader: some View {
+        HStack(alignment: .top, spacing: 12) {
+            if let data = page.imageData, let uiImage = UIImage(data: data) {
+                Button {
+                    showImagePreview = true
+                } label: {
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 72, height: 72)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("원본 이미지 확대 보기")
+            } else {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color(.secondarySystemBackground))
+                    .frame(width: 72, height: 72)
+                    .overlay {
+                        Image(systemName: "photo")
+                            .foregroundStyle(.secondary)
+                    }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Text(page.title ?? "제목 없음")
+                        .font(.title3)
+                        .fontWeight(.semibold)
+                    Button {
+                        pageTitleDraft = page.title ?? ""
+                        showPageRenameAlert = true
+                    } label: {
+                        Image(systemName: "pencil")
+                            .font(.subheadline)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("페이지 이름 수정")
+                }
+                Text(page.createdAt.formatted(date: .abbreviated, time: .shortened))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var imagePreviewSheet: some View {
+        ZStack(alignment: .topTrailing) {
+            Color.black.ignoresSafeArea()
+            if let data = page.imageData, let uiImage = UIImage(data: data) {
+                Image(uiImage: uiImage)
+                    .resizable()
+                    .scaledToFit()
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 20)
+                    .padding(.top, 84)
+            }
+            Button {
+                showImagePreview = false
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 28))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .padding()
+            }
         }
     }
 
@@ -467,50 +574,20 @@ private struct PageDetailView: View {
                 }
             } else {
                 ForEach(sortedSentences) { sentence in
-                    Button {
-                        selectedSentenceID = sentence.id
-                        selectedSentenceForSheet = sentence
-                    } label: {
-                        SentenceRowView(
-                            sentence: sentence,
-                            isSelected: selectedSentenceID == sentence.id
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-    }
-
-    private var wordSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("단어")
-                .font(.headline)
-
-            if sortedWords.isEmpty {
-                if page.isTextAnalyzed {
-                    Text("감지된 단어가 없습니다.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("단어 데이터를 준비 중입니다.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            } else {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 90), spacing: 8)], spacing: 8) {
-                    ForEach(sortedWords) { word in
-                        Button {
-                            selectedWordID = word.id
-                            selectedWordForSheet = word
-                        } label: {
-                            WordChipView(
-                                text: word.word,
-                                isSelected: selectedWordID == word.id
-                            )
+                    SentenceRowView(
+                        sentence: sentence,
+                        isSelected: selectedSentenceID == sentence.id,
+                        selectedWordText: selectedWordText,
+                        savedWords: savedWordSet,
+                        onSentenceTap: {
+                            selectedSentenceID = sentence.id
+                            selectedSentenceForSheet = sentence
+                        },
+                        onWordTap: { tappedWord in
+                            selectedWordText = tappedWord
+                            selectedWordForSheet = VocabularyItem(word: tappedWord)
                         }
-                        .buttonStyle(.plain)
-                    }
+                    )
                 }
             }
         }
@@ -532,68 +609,219 @@ private struct PageDetailView: View {
             showAnalyzeErrorAlert = true
         }
     }
-
-    private func exampleSentence(for word: VocabularyItem) -> String? {
-        sortedSentences.first(where: { sentence in
-            sentence.text.localizedCaseInsensitiveContains(word.word)
-        })?.text
-    }
 }
 
 private struct SentenceRowView: View {
     let sentence: SentenceItem
     let isSelected: Bool
+    let selectedWordText: String?
+    let savedWords: Set<String>
+    let onSentenceTap: () -> Void
+    let onWordTap: (String) -> Void
+
+    private var tokens: [SentenceToken] {
+        SentenceToken.build(from: sentence.text)
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Text("\(sentence.order)")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(isSelected ? .white : Color.accentColor)
-                .frame(width: 24, height: 24)
-                .background(
-                    Circle()
-                        .fill(isSelected ? Color.accentColor : Color.accentColor.opacity(0.15))
-                )
-            Text(sentence.text)
-                .font(.body)
-                .multilineTextAlignment(.leading)
-                .foregroundStyle(.primary)
+            Button {
+                onSentenceTap()
+            } label: {
+                Text("\(sentence.order)")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(isSelected ? .white : Color.accentColor)
+                    .frame(width: 24, height: 24)
+                    .background(
+                        Circle()
+                            .fill(isSelected ? Color.accentColor : Color.accentColor.opacity(0.15))
+                    )
+            }
+            .buttonStyle(.plain)
+
+            FlowWrapLayout(spacing: 4, lineSpacing: 6) {
+                ForEach(tokens) { token in
+                    if token.isWord {
+                        Button {
+                            onWordTap(token.normalized)
+                        } label: {
+                            Text(token.text)
+                                .font(.body)
+                                .foregroundStyle(.primary)
+                                .padding(.vertical, 2)
+                                .padding(.horizontal, 3)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 5)
+                                        .fill(backgroundColor(for: token.normalized))
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.trailing, token.trailingSpacing)
+                    } else {
+                        Text(token.text)
+                            .font(.body)
+                            .foregroundStyle(.primary)
+                            .padding(.trailing, token.trailingSpacing)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
             Spacer(minLength: 0)
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("문장 \(sentence.order). \(sentence.text)")
-        .accessibilityHint("탭하면 문장 해석과 듣기 화면이 열립니다.")
         .padding(10)
         .background(
             RoundedRectangle(cornerRadius: 10)
                 .fill(isSelected ? Color.accentColor.opacity(0.12) : Color(.secondarySystemBackground))
         )
     }
+
+    private func backgroundColor(for word: String) -> Color {
+        if savedWords.contains(word) {
+            return .yellow.opacity(0.55)
+        }
+        if selectedWordText == word {
+            return Color.accentColor.opacity(0.2)
+        }
+        return .clear
+    }
 }
 
-private struct WordChipView: View {
+private struct SentenceToken: Identifiable {
+    let id = UUID()
     let text: String
-    let isSelected: Bool
+    let isWord: Bool
+    let normalized: String
+    let trailingSpacing: CGFloat
+
+    static func build(from sentence: String) -> [SentenceToken] {
+        guard let regex = try? NSRegularExpression(pattern: #"[A-Za-z]+(?:'[A-Za-z]+)?|[^A-Za-z\s]+"#) else {
+            return []
+        }
+
+        let nsSentence = sentence as NSString
+        let range = NSRange(location: 0, length: nsSentence.length)
+        let matches = regex.matches(in: sentence, range: range)
+
+        return matches.map { match in
+            let token = nsSentence.substring(with: match.range)
+            let isWord = token.range(of: #"[A-Za-z]+"#, options: .regularExpression) != nil
+            let spacing: CGFloat = token.range(of: #"[,.!?;:]"#, options: .regularExpression) != nil ? 2 : 4
+            return SentenceToken(
+                text: token,
+                isWord: isWord,
+                normalized: token.lowercased(),
+                trailingSpacing: spacing
+            )
+        }
+    }
+}
+
+private struct FlowWrapLayout: Layout {
+    var spacing: CGFloat = 4
+    var lineSpacing: CGFloat = 6
+
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var currentX: CGFloat = 0
+        var currentY: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var maxX: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if currentX + size.width > maxWidth, currentX > 0 {
+                currentX = 0
+                currentY += rowHeight + lineSpacing
+                rowHeight = 0
+            }
+            maxX = max(maxX, currentX + size.width)
+            rowHeight = max(rowHeight, size.height)
+            currentX += size.width + spacing
+        }
+
+        return CGSize(width: maxX, height: currentY + rowHeight)
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) {
+        var currentX = bounds.minX
+        var currentY = bounds.minY
+        var rowHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if currentX + size.width > bounds.maxX, currentX > bounds.minX {
+                currentX = bounds.minX
+                currentY += rowHeight + lineSpacing
+                rowHeight = 0
+            }
+
+            subview.place(
+                at: CGPoint(x: currentX, y: currentY),
+                proposal: ProposedViewSize(width: size.width, height: size.height)
+            )
+
+            rowHeight = max(rowHeight, size.height)
+            currentX += size.width + spacing
+        }
+    }
+}
+
+private struct UploadSourceMenuView: View {
+    let onCameraTap: () -> Void
+    let onPhotoTap: () -> Void
 
     var body: some View {
-        Text(text)
-            .font(.subheadline)
-            .lineLimit(1)
-            .minimumScaleFactor(0.8)
-            .padding(.vertical, 8)
-            .padding(.horizontal, 10)
-            .frame(maxWidth: .infinity)
-            .accessibilityLabel("단어 \(text)")
-            .accessibilityHint("탭하면 단어 뜻과 발음을 확인할 수 있습니다.")
-            .background(
-                Capsule()
-                    .fill(isSelected ? Color.accentColor.opacity(0.18) : Color(.secondarySystemBackground))
-            )
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                onCameraTap()
+            } label: {
+                Label("카메라", systemImage: "camera")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .font(.headline)
+                    .padding(.vertical, 12)
+                    .padding(.horizontal, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Color(.secondarySystemBackground))
+                    )
+            }
+            .disabled(!UIImagePickerController.isSourceTypeAvailable(.camera))
+            .buttonStyle(.plain)
+
+            Button {
+                onPhotoTap()
+            } label: {
+                Label("포토 라이브러리", systemImage: "photo.on.rectangle")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .font(.headline)
+                    .padding(.vertical, 12)
+                    .padding(.horizontal, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Color(.secondarySystemBackground))
+                    )
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(14)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .shadow(color: .black.opacity(0.14), radius: 10, x: 0, y: 4)
+        .frame(width: 230)
     }
 }
 
 private struct SavePageSheet: View {
     let books: [Book]
+    @Binding var pageTitle: String
     let onCancel: () -> Void
     let onSave: (BookClassificationMode, Book?, String) -> Void
 
@@ -609,6 +837,13 @@ private struct SavePageSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section("페이지 이름") {
+                    TextField("페이지 이름 (선택)", text: $pageTitle)
+                    Text("입력하지 않으면 현재 시간을 기준으로 자동 생성됩니다.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
                 Section("책 분류") {
                     Picker("저장 방식", selection: $mode) {
                         ForEach(BookClassificationMode.allCases) { value in
@@ -676,7 +911,9 @@ private struct LoadingOverlayView: View {
 }
 
 private struct VocabularyView: View {
+    @Environment(\.modelContext) private var modelContext
     @Query(sort: [SortDescriptor(\SavedVocabulary.createdAt, order: .reverse)]) private var savedWords: [SavedVocabulary]
+    @State private var unbookmarkingWordIDs = Set<UUID>()
 
     var body: some View {
         Group {
@@ -692,18 +929,21 @@ private struct VocabularyView: View {
                         HStack {
                             Text(item.word)
                                 .font(.headline)
-                            Spacer(minLength: 8)
-                            Button("듣기") {
+                            Button {
                                 SpeechService.shared.speak(text: item.word)
+                            } label: {
+                                Image(systemName: "speaker.wave.2.fill")
                             }
-                            .font(.caption)
                             .accessibilityLabel("\(item.word) 발음 듣기")
-                        }
-
-                        if let pronunciation = item.pronunciation, !pronunciation.isEmpty {
-                            Text(pronunciation)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
+                            .padding(.leading, 6)
+                            Spacer(minLength: 0)
+                            Button {
+                                unbookmark(item)
+                            } label: {
+                                Image(systemName: unbookmarkingWordIDs.contains(item.id) ? "bookmark" : "bookmark.fill")
+                            }
+                            .disabled(unbookmarkingWordIDs.contains(item.id))
+                            .accessibilityLabel("\(item.word) 북마크 해제")
                         }
 
                         if let meaning = item.meaning, !meaning.isEmpty {
@@ -721,6 +961,20 @@ private struct VocabularyView: View {
             }
         }
         .navigationTitle("단어장")
+    }
+
+    private func remove(_ item: SavedVocabulary) {
+        modelContext.delete(item)
+        try? modelContext.save()
+    }
+
+    private func unbookmark(_ item: SavedVocabulary) {
+        unbookmarkingWordIDs.insert(item.id)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+            remove(item)
+            unbookmarkingWordIDs.remove(item.id)
+        }
     }
 }
 

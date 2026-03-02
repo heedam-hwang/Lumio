@@ -1,4 +1,5 @@
 import Foundation
+import NaturalLanguage
 import SwiftData
 import Vision
 
@@ -7,52 +8,91 @@ struct DetectedSentence {
     let order: Int
 }
 
-struct DetectedWord {
-    let word: String
-    let order: Int
-    let sentenceOrder: Int
-}
-
 enum OCRTextProcessor {
-    nonisolated static func buildDetectedWords(from lines: [String]) -> [DetectedWord] {
-        var words: [DetectedWord] = []
-        var wordOrder = 1
-        var seenWords = Set<String>()
+    nonisolated static func buildSentences(from lines: [String]) -> [DetectedSentence] {
+        let rawText = lines
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
 
-        for (index, line) in lines.enumerated() {
-            let sentenceOrder = index + 1
-            for token in tokenize(line) {
-                let normalized = token.lowercased()
-                guard !seenWords.contains(normalized) else { continue }
-                seenWords.insert(normalized)
-                words.append(
-                    DetectedWord(
-                        word: normalized,
-                        order: wordOrder,
-                        sentenceOrder: sentenceOrder
+        let combinedText = rawText.replacingOccurrences(
+            of: #"\s+"#,
+            with: " ",
+            options: .regularExpression
+        )
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !combinedText.isEmpty else { return [] }
+
+        let tokenizer = NLTokenizer(unit: .sentence)
+        tokenizer.string = combinedText
+        tokenizer.setLanguage(.english)
+
+        var results: [DetectedSentence] = []
+        tokenizer.enumerateTokens(in: combinedText.startIndex..<combinedText.endIndex) { range, _ in
+            let sentence = String(combinedText[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !sentence.isEmpty else { return true }
+            results.append(DetectedSentence(text: sentence, order: results.count + 1))
+            return true
+        }
+
+        if results.isEmpty {
+            results.append(DetectedSentence(text: combinedText, order: 1))
+        }
+
+        var normalizedResults: [DetectedSentence] = []
+        for sentence in results {
+            let splits = splitAfterTimeAbbreviations(sentence.text)
+            for text in splits where !text.isEmpty {
+                normalizedResults.append(
+                    DetectedSentence(
+                        text: text,
+                        order: normalizedResults.count + 1
                     )
                 )
-                wordOrder += 1
             }
         }
 
-        return words
+        return normalizedResults.isEmpty ? results : normalizedResults
     }
 
-    nonisolated static func tokenize(_ text: String) -> [String] {
-        let pattern = "[A-Za-z]+(?:'[A-Za-z]+)?"
-        guard let regex = try? NSRegularExpression(pattern: pattern) else {
-            return []
+    private nonisolated static func splitAfterTimeAbbreviations(_ text: String) -> [String] {
+        guard let regex = try? NSRegularExpression(
+            pattern: #"\b(?:a\.m\.|p\.m\.)\s+(?=[A-Z])"#,
+            options: [.caseInsensitive]
+        ) else {
+            return [text]
         }
 
         let nsText = text as NSString
-        let matches = regex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
-        return matches.map { nsText.substring(with: $0.range) }
+        let fullRange = NSRange(location: 0, length: nsText.length)
+        let matches = regex.matches(in: text, range: fullRange)
+        guard !matches.isEmpty else { return [text] }
+
+        var parts: [String] = []
+        var start = 0
+        for match in matches {
+            let splitIndex = match.range.location + match.range.length
+            let range = NSRange(location: start, length: splitIndex - start)
+            let segment = nsText.substring(with: range).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !segment.isEmpty {
+                parts.append(segment)
+            }
+            start = splitIndex
+        }
+
+        let tail = NSRange(location: start, length: nsText.length - start)
+        let trailing = nsText.substring(with: tail).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trailing.isEmpty {
+            parts.append(trailing)
+        }
+
+        return parts
     }
 }
 
 enum VisionTextDetector {
-    static func detect(from imageData: Data) async throws -> ([DetectedSentence], [DetectedWord]) {
+    static func detect(from imageData: Data) async throws -> [DetectedSentence] {
         try await Task.detached(priority: .userInitiated) {
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
@@ -72,22 +112,17 @@ enum VisionTextDetector {
                 return $0.boundingBox.minX < $1.boundingBox.minX
             }
 
-            var sentences: [DetectedSentence] = []
             var lineTexts: [String] = []
 
-            for (index, observation) in sorted.enumerated() {
+            for observation in sorted {
                 guard let text = observation.topCandidates(1).first?.string.trimmingCharacters(in: .whitespacesAndNewlines),
                       !text.isEmpty else {
                     continue
                 }
-
-                let sentenceOrder = index + 1
-                sentences.append(DetectedSentence(text: text, order: sentenceOrder))
                 lineTexts.append(text)
             }
 
-            let words = OCRTextProcessor.buildDetectedWords(from: lineTexts)
-            return (sentences, words)
+            return OCRTextProcessor.buildSentences(from: lineTexts)
         }.value
     }
 }
@@ -105,7 +140,7 @@ enum PageTextAnalyzer {
             return
         }
 
-        let (sentences, words) = try await VisionTextDetector.detect(from: imageData)
+        let sentences = try await VisionTextDetector.detect(from: imageData)
 
         for item in page.sentences {
             context.delete(item)
@@ -119,16 +154,6 @@ enum PageTextAnalyzer {
             let item = SentenceItem(
                 text: sentence.text,
                 order: sentence.order,
-                page: page
-            )
-            context.insert(item)
-        }
-
-        for word in words {
-            let item = VocabularyItem(
-                word: word.word,
-                order: word.order,
-                sentenceOrder: word.sentenceOrder,
                 page: page
             )
             context.insert(item)

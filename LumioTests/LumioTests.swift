@@ -3,23 +3,46 @@ import XCTest
 @testable import Lumio
 
 final class OCRTextProcessorTests: XCTestCase {
-    func testTokenizeExtractsEnglishWordsAndApostrophes() {
-        let tokens = OCRTextProcessor.tokenize("Hello, reader's world! 123")
-
-        XCTAssertEqual(tokens, ["Hello", "reader's", "world"])
-    }
-
-    func testBuildDetectedWordsDeduplicatesWithinPage() {
+    func testBuildSentencesSplitsBySentencePunctuation() {
         let lines = [
-            "Apple banana apple",
-            "BANANA grape"
+            "Hello world.",
+            "How are you? I am fine!"
         ]
 
-        let words = OCRTextProcessor.buildDetectedWords(from: lines)
+        let sentences = OCRTextProcessor.buildSentences(from: lines)
 
-        XCTAssertEqual(words.map(\.word), ["apple", "banana", "grape"])
-        XCTAssertEqual(words.map(\.order), [1, 2, 3])
-        XCTAssertEqual(words.map(\.sentenceOrder), [1, 1, 2])
+        XCTAssertEqual(sentences.map(\.text), ["Hello world.", "How are you?", "I am fine!"])
+        XCTAssertEqual(sentences.map(\.order), [1, 2, 3])
+    }
+
+    func testBuildSentencesMergesLineBreaksIntoSingleSentenceWhenNeeded() {
+        let lines = [
+            "This is first line",
+            "continued same sentence"
+        ]
+
+        let sentences = OCRTextProcessor.buildSentences(from: lines)
+
+        XCTAssertEqual(sentences.map(\.text), ["This is first line continued same sentence"])
+        XCTAssertEqual(sentences.map(\.order), [1])
+    }
+
+    func testBuildSentencesSplitsAbbreviationAndFollowingSentences() {
+        let lines = [
+            "7:07 a.m. Somewhere in North Dakota. Abroad Amtrak's Empire Builder, en route from Chicago to Portland, Oregon."
+        ]
+
+        let sentences = OCRTextProcessor.buildSentences(from: lines)
+
+        XCTAssertEqual(
+            sentences.map(\.text),
+            [
+                "7:07 a.m.",
+                "Somewhere in North Dakota.",
+                "Abroad Amtrak's Empire Builder, en route from Chicago to Portland, Oregon."
+            ]
+        )
+        XCTAssertEqual(sentences.map(\.order), [1, 2, 3])
     }
 }
 

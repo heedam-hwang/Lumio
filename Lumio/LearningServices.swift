@@ -108,7 +108,6 @@ struct SentenceLookupSheet: View {
 
 struct WordLookupSheet: View {
     let word: VocabularyItem
-    let exampleSentence: String?
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
@@ -116,24 +115,16 @@ struct WordLookupSheet: View {
     @State private var translatedMeaning = ""
     @State private var translateError: String?
     @State private var isTranslating = false
-    @State private var pronunciationDisplay = ""
     @State private var translationConfig: TranslationSession.Configuration?
     @State private var saveErrorMessage: String?
     @State private var showSaveErrorAlert = false
+    @State private var isSaved = false
 
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 16) {
                 Text(word.word)
                     .font(.title3.weight(.semibold))
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("발음")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(pronunciationDisplay)
-                        .font(.body)
-                }
 
                 Divider()
 
@@ -159,17 +150,6 @@ struct WordLookupSheet: View {
                     }
                 }
 
-                if let exampleSentence {
-                    Divider()
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("예문")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(exampleSentence)
-                            .font(.body)
-                    }
-                }
-
                 Spacer()
             }
             .padding(20)
@@ -184,16 +164,16 @@ struct WordLookupSheet: View {
                         SpeechService.shared.speak(text: word.word)
                     }
                     Button {
-                        saveToVocabularyBook()
+                        toggleVocabularyBookmark()
                     } label: {
-                        Image(systemName: "bookmark")
+                        Image(systemName: isSaved ? "bookmark.fill" : "bookmark")
                     }
                     .accessibilityLabel("단어장 저장")
                 }
             }
         }
         .onAppear {
-            pronunciationDisplay = word.pronunciation ?? "/\(word.word)/"
+            refreshSavedState()
             translationConfig = TranslationSession.Configuration(
                 source: Locale.Language(identifier: "en-US"),
                 target: Locale.Language(identifier: "ko-KR")
@@ -220,40 +200,57 @@ struct WordLookupSheet: View {
             translatedMeaning = response.targetText
             translateError = nil
             word.meaning = response.targetText
-            if word.pronunciation == nil {
-                word.pronunciation = "/\(word.word)/"
-            }
-            try? modelContext.save()
         } catch {
             translateError = "단어 뜻을 가져오지 못했습니다."
         }
     }
 
     @MainActor
-    private func saveToVocabularyBook() {
-        let currentWord = word.word
-        let descriptor = FetchDescriptor<SavedVocabulary>(predicate: #Predicate { item in
-            item.word == currentWord
-        })
+    private func refreshSavedState() {
+        isSaved = (try? existingSavedItem()) != nil
+    }
 
+    @MainActor
+    private func toggleVocabularyBookmark() {
         do {
-            if let existing = try modelContext.fetch(descriptor).first {
-                existing.meaning = word.meaning
-                existing.pronunciation = word.pronunciation
+            if let existing = try existingSavedItem() {
+                modelContext.delete(existing)
                 try modelContext.save()
+                isSaved = false
                 return
             }
 
-            let item = SavedVocabulary(
-                word: word.word,
-                meaning: word.meaning,
-                pronunciation: word.pronunciation
-            )
-            modelContext.insert(item)
-            try modelContext.save()
+            try saveToVocabularyBook()
+            isSaved = true
         } catch {
-            saveErrorMessage = "단어장 저장에 실패했습니다. 다시 시도해 주세요."
+            saveErrorMessage = "단어장 저장 상태 변경에 실패했습니다. 다시 시도해 주세요."
             showSaveErrorAlert = true
         }
+    }
+
+    @MainActor
+    private func saveToVocabularyBook() throws {
+        let currentWord = word.word.lowercased()
+        if let existing = try existingSavedItem() {
+            existing.meaning = word.meaning
+            try modelContext.save()
+            return
+        }
+
+        let item = SavedVocabulary(
+            word: currentWord,
+            meaning: word.meaning
+        )
+        modelContext.insert(item)
+        try modelContext.save()
+    }
+
+    @MainActor
+    private func existingSavedItem() throws -> SavedVocabulary? {
+        let normalized = word.word.lowercased()
+        let descriptor = FetchDescriptor<SavedVocabulary>()
+        return try modelContext.fetch(descriptor).first(where: { item in
+            item.word.lowercased() == normalized
+        })
     }
 }
