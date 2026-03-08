@@ -67,6 +67,11 @@ private struct HomeView: View {
     @State private var showUploadErrorAlert = false
     @State private var customPageTitle = ""
 
+    private let gridColumns = [
+        GridItem(.flexible(), spacing: 16),
+        GridItem(.flexible(), spacing: 16)
+    ]
+
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
             Group {
@@ -77,30 +82,26 @@ private struct HomeView: View {
                         Text("오른쪽 아래 업로드 버튼으로 책 페이지를 추가해 보세요.")
                     }
                 } else {
-                    List(books) { book in
-                        NavigationLink {
-                            BookPagesView(book: book)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(book.title)
-                                    .font(.headline)
-                                Text("페이지 \(book.pages.count)개")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
+                    ScrollView {
+                        LazyVGrid(columns: gridColumns, spacing: 18) {
+                            ForEach(books) { book in
+                                BookGridCardView(
+                                    book: book,
+                                    onRename: {
+                                        editingBook = book
+                                        editingBookTitle = book.title
+                                        showBookRenameAlert = true
+                                    },
+                                    onChangeCover: { imageData in
+                                        saveBookCover(book: book, imageData: imageData)
+                                    }
+                                )
                             }
-                            .padding(.vertical, 4)
                         }
-                        .accessibilityHint("선택하면 책의 페이지 목록으로 이동합니다.")
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button("이름 변경") {
-                                editingBook = book
-                                editingBookTitle = book.title
-                                showBookRenameAlert = true
-                            }
-                            .tint(.blue)
-                        }
+                        .padding(.horizontal, 20)
+                        .padding(.top, 16)
+                        .padding(.bottom, 96)
                     }
-                    .listStyle(.plain)
                 }
             }
 
@@ -264,6 +265,7 @@ private struct HomeView: View {
 
         let page = Page(
             title: resolvedPageTitle(input: pageTitle),
+            sortOrder: nextPageSortOrder(in: targetBook),
             createdAt: Date(),
             imageData: imageData,
             book: targetBook
@@ -327,20 +329,145 @@ private struct HomeView: View {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? makeDefaultPageTitle() : trimmed
     }
+
+    private func saveBookCover(book: Book, imageData: Data) {
+        book.coverImageData = imageData
+        do {
+            try modelContext.save()
+        } catch {
+            persistenceErrorMessage = "책 표지 저장에 실패했습니다."
+            showPersistenceErrorAlert = true
+        }
+    }
+
+    private func nextPageSortOrder(in book: Book) -> Int {
+        let currentMax = book.pages.compactMap(\.sortOrder).max() ?? 0
+        return currentMax + 1
+    }
+}
+
+private struct BookGridCardView: View {
+    let book: Book
+    let onRename: () -> Void
+    let onChangeCover: (Data) -> Void
+
+    @State private var coverSelection: PhotosPickerItem?
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            NavigationLink {
+                BookPagesView(book: book)
+            } label: {
+                VStack(alignment: .leading, spacing: 12) {
+                    bookCover
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(book.title)
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                            .lineLimit(2)
+                        Text("페이지 \(book.pages.count)개")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 2)
+                }
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 22)
+                        .fill(Color(.secondarySystemBackground))
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("선택하면 책의 페이지 목록으로 이동합니다.")
+
+            Menu {
+                PhotosPicker(selection: $coverSelection, matching: .images) {
+                    Label("표지 변경", systemImage: "photo")
+                }
+
+                Button {
+                    onRename()
+                } label: {
+                    Label("책 이름 변경", systemImage: "pencil")
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: 32, height: 32)
+                    .background(.ultraThinMaterial, in: Circle())
+                    .padding(10)
+            }
+            .buttonStyle(.plain)
+        }
+        .onChange(of: coverSelection) { _, newItem in
+            guard let newItem else { return }
+            Task {
+                do {
+                    if let data = try await newItem.loadTransferable(type: Data.self) {
+                        await MainActor.run {
+                            onChangeCover(data)
+                            coverSelection = nil
+                        }
+                    }
+                } catch {
+                    coverSelection = nil
+                }
+            }
+        }
+    }
+
+    private var bookCover: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 18)
+                .fill(
+                    LinearGradient(
+                        colors: [Color.orange.opacity(0.9), Color.yellow.opacity(0.55)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(maxWidth: .infinity)
+                .aspectRatio(0.75, contentMode: .fit)
+
+            if let data = book.coverImageData, let uiImage = UIImage(data: data) {
+                Image(uiImage: uiImage)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(maxWidth: .infinity)
+                    .aspectRatio(0.75, contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 18))
+            } else {
+                VStack(alignment: .trailing, spacing: 8) {
+                    Spacer()
+                    Image(systemName: "books.vertical.fill")
+                        .font(.system(size: 28, weight: .semibold))
+                }
+                .foregroundStyle(.white)
+                .padding(16)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
 }
 
 private struct BookPagesView: View {
     @Environment(\.modelContext) private var modelContext
     let book: Book
 
+    @State private var editMode: EditMode = .inactive
     @State private var editingPage: Page?
     @State private var editingPageTitle = ""
     @State private var showPageRenameAlert = false
+    @State private var pendingPageDeletion: Page?
+    @State private var showPageDeleteConfirmation = false
     @State private var saveErrorMessage: String?
     @State private var showSaveErrorAlert = false
 
     private var sortedPages: [Page] {
-        book.pages.sorted { $0.createdAt > $1.createdAt }
+        book.pages.sorted(by: pageDisplayComparator)
     }
 
     var body: some View {
@@ -352,33 +479,30 @@ private struct BookPagesView: View {
                     Text("홈에서 업로드 버튼을 눌러 페이지를 추가해 보세요.")
                 }
             } else {
-                List(sortedPages) { page in
-                    NavigationLink {
-                        PageDetailView(page: page)
-                    } label: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(page.title ?? "제목 없음")
-                                .font(.headline)
-                            Text(page.createdAt.formatted(date: .numeric, time: .shortened))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                List {
+                    ForEach(sortedPages) { page in
+                        if isEditing {
+                            pageRowContent(page)
+                                .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                        } else {
+                            NavigationLink {
+                                PageDetailView(page: page)
+                            } label: {
+                                pageRowContent(page)
+                            }
                         }
-                        .padding(.vertical, 2)
-                    }
-                    .accessibilityHint("선택하면 페이지 상세 화면으로 이동합니다.")
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        Button("제목 변경") {
-                            editingPage = page
-                            editingPageTitle = page.title ?? ""
-                            showPageRenameAlert = true
-                        }
-                        .tint(.blue)
                     }
                 }
                 .listStyle(.plain)
             }
         }
         .navigationTitle(book.title)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                EditButton()
+            }
+        }
+        .environment(\.editMode, $editMode)
         .alert("페이지 제목 변경", isPresented: $showPageRenameAlert) {
             TextField("페이지 제목", text: $editingPageTitle)
             Button("취소", role: .cancel) {}
@@ -401,6 +525,99 @@ private struct BookPagesView: View {
         }, message: {
             Text(saveErrorMessage ?? "데이터 저장에 실패했습니다.")
         })
+        .alert("페이지를 삭제할까요?", isPresented: $showPageDeleteConfirmation, actions: {
+            Button("취소", role: .cancel) {
+                pendingPageDeletion = nil
+            }
+            Button("삭제", role: .destructive) {
+                if let pendingPageDeletion {
+                    deletePage(pendingPageDeletion)
+                }
+                pendingPageDeletion = nil
+            }
+        }, message: {
+            Text("삭제한 페이지는 복구할 수 없습니다.")
+        })
+    }
+
+    private var isEditing: Bool {
+        editMode == .active
+    }
+
+    @ViewBuilder
+    private func pageRowContent(_ page: Page) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Text(page.title ?? "제목 없음")
+                        .font(.headline)
+                        .lineLimit(1)
+                    if isEditing {
+                        Button {
+                            editingPage = page
+                            editingPageTitle = page.title ?? ""
+                            showPageRenameAlert = true
+                        } label: {
+                            Image(systemName: "pencil")
+                                .font(.caption.weight(.semibold))
+                                .frame(width: 20, height: 20)
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("페이지 이름 수정")
+
+                        Button {
+                            pendingPageDeletion = page
+                            showPageDeleteConfirmation = true
+                        } label: {
+                            Image(systemName: "trash")
+                                .font(.caption.weight(.semibold))
+                                .frame(width: 20, height: 20)
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.red)
+                        .accessibilityLabel("페이지 삭제")
+                    }
+                }
+                Text(pageSubtitle(for: page))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Text(page.createdAt.formatted(date: .numeric, time: .shortened))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 10)
+        .padding(.horizontal, 12)
+    }
+
+    private func pageSubtitle(for page: Page) -> String {
+        let firstSentence = page.sentences
+            .sorted { $0.order < $1.order }
+            .first?
+            .text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let firstSentence, !firstSentence.isEmpty {
+            return firstSentence
+        }
+
+        return page.isTextAnalyzed ? "감지된 첫 문장이 없습니다." : "문장 분석 중"
+    }
+
+    private func deletePage(_ page: Page) {
+        modelContext.delete(page)
+        do {
+            try modelContext.save()
+        } catch {
+            saveErrorMessage = "페이지 삭제에 실패했습니다."
+            showSaveErrorAlert = true
+        }
+    }
+
+    private func pageDisplayComparator(lhs: Page, rhs: Page) -> Bool {
+        return lhs.createdAt > rhs.createdAt
     }
 }
 
@@ -409,6 +626,7 @@ private struct PageDetailView: View {
     @Query(sort: [SortDescriptor(\SavedVocabulary.word)]) private var savedWords: [SavedVocabulary]
     let page: Page
 
+    @State private var editMode: EditMode = .inactive
     @State private var selectedSentenceID: UUID?
     @State private var selectedWordText: String?
     @State private var selectedSentenceForSheet: SentenceItem?
@@ -419,6 +637,11 @@ private struct PageDetailView: View {
     @State private var showImagePreview = false
     @State private var pageTitleDraft = ""
     @State private var showPageRenameAlert = false
+    @State private var editingSentence: SentenceItem?
+    @State private var editingSentenceText = ""
+    @State private var showSentenceEditSheet = false
+    @State private var pendingSentenceDeletion: SentenceItem?
+    @State private var showSentenceDeleteConfirmation = false
     @State private var saveErrorMessage: String?
     @State private var showSaveErrorAlert = false
 
@@ -431,16 +654,55 @@ private struct PageDetailView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                pageHeader
+        Group {
+            if isEditing {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        pageHeader
+                        sentenceEditorSection
+                    }
+                    .padding(20)
+                }
+            } else {
+                List {
+                    Section {
+                        pageHeader
+                            .listRowInsets(EdgeInsets(top: 18, leading: 20, bottom: 12, trailing: 20))
+                            .listRowSeparator(.hidden)
+                    }
 
-                sentenceSection
+                    Section("문장") {
+                        if sortedSentences.isEmpty {
+                            if page.isTextAnalyzed {
+                                Text("감지된 문장이 없습니다.")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Text("문장 데이터를 준비 중입니다.")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } else {
+                            ForEach(sortedSentences) { sentence in
+                                sentenceRow(sentence, showsDragHandle: false)
+                                    .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                                    .listRowSeparator(.hidden)
+                            }
+                        }
+                    }
+                    .listRowBackground(Color.clear)
+                }
+                .listStyle(.plain)
             }
-            .padding(20)
         }
         .navigationTitle("페이지")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                EditButton()
+            }
+        }
+        .environment(\.editMode, $editMode)
         .overlay {
             if isAnalyzing {
                 LoadingOverlayView(title: "문장/단어 감지 중")
@@ -461,6 +723,16 @@ private struct PageDetailView: View {
         .sheet(item: $selectedWordForSheet) { word in
             WordLookupSheet(word: word)
             .presentationDetents([.fraction(0.5), .large])
+        }
+        .sheet(isPresented: $showSentenceEditSheet) {
+            SentenceEditSheet(
+                text: $editingSentenceText,
+                onCancel: {
+                    showSentenceEditSheet = false
+                },
+                onSave: saveEditedSentence
+            )
+            .presentationDetents([.medium, .large])
         }
         .fullScreenCover(isPresented: $showImagePreview) {
             imagePreviewSheet
@@ -486,6 +758,23 @@ private struct PageDetailView: View {
         }, message: {
             Text(saveErrorMessage ?? "데이터 저장에 실패했습니다.")
         })
+        .alert("문장을 삭제할까요?", isPresented: $showSentenceDeleteConfirmation, actions: {
+            Button("취소", role: .cancel) {
+                pendingSentenceDeletion = nil
+            }
+            Button("삭제", role: .destructive) {
+                if let pendingSentenceDeletion {
+                    deleteSentence(pendingSentenceDeletion)
+                }
+                pendingSentenceDeletion = nil
+            }
+        }, message: {
+            Text("삭제한 문장은 복구할 수 없으며, 문장 번호는 자동으로 다시 정렬됩니다.")
+        })
+    }
+
+    private var isEditing: Bool {
+        editMode == .active
     }
 
     private var pageHeader: some View {
@@ -517,21 +806,78 @@ private struct PageDetailView: View {
                     Text(page.title ?? "제목 없음")
                         .font(.title3)
                         .fontWeight(.semibold)
-                    Button {
-                        pageTitleDraft = page.title ?? ""
-                        showPageRenameAlert = true
-                    } label: {
-                        Image(systemName: "pencil")
-                            .font(.subheadline)
+                    if isEditing {
+                        Button {
+                            pageTitleDraft = page.title ?? ""
+                            showPageRenameAlert = true
+                        } label: {
+                            Image(systemName: "pencil")
+                                .font(.subheadline)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("페이지 이름 수정")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("페이지 이름 수정")
                 }
                 Text(page.createdAt.formatted(date: .abbreviated, time: .shortened))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
+        }
+    }
+
+    private var sentenceEditorSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("문장")
+                .font(.headline)
+
+            if sortedSentences.isEmpty {
+                Text(page.isTextAnalyzed ? "감지된 문장이 없습니다." : "문장 데이터를 준비 중입니다.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(sortedSentences) { sentence in
+                    sentenceRow(sentence, showsDragHandle: false)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func sentenceRow(_ sentence: SentenceItem, showsDragHandle: Bool) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            SentenceRowView(
+                sentence: sentence,
+                isSelected: selectedSentenceID == sentence.id,
+                isEditing: isEditing,
+                selectedWordText: selectedWordText,
+                savedWords: savedWordSet,
+                onSentenceTap: {
+                    guard !isEditing else { return }
+                    selectedSentenceID = sentence.id
+                    selectedSentenceForSheet = sentence
+                },
+                onEditTap: {
+                    editingSentence = sentence
+                    editingSentenceText = sentence.text
+                    showSentenceEditSheet = true
+                },
+                onWordTap: { tappedWord in
+                    selectedWordText = tappedWord
+                    selectedWordForSheet = VocabularyItem(word: tappedWord)
+                },
+                onDeleteTap: {
+                    pendingSentenceDeletion = sentence
+                    showSentenceDeleteConfirmation = true
+                }
+            )
+
+            if showsDragHandle {
+                Image(systemName: "line.3.horizontal")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 12)
+            }
         }
     }
 
@@ -557,42 +903,6 @@ private struct PageDetailView: View {
         }
     }
 
-    private var sentenceSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("문장")
-                .font(.headline)
-
-            if sortedSentences.isEmpty {
-                if page.isTextAnalyzed {
-                    Text("감지된 문장이 없습니다.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("문장 데이터를 준비 중입니다.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            } else {
-                ForEach(sortedSentences) { sentence in
-                    SentenceRowView(
-                        sentence: sentence,
-                        isSelected: selectedSentenceID == sentence.id,
-                        selectedWordText: selectedWordText,
-                        savedWords: savedWordSet,
-                        onSentenceTap: {
-                            selectedSentenceID = sentence.id
-                            selectedSentenceForSheet = sentence
-                        },
-                        onWordTap: { tappedWord in
-                            selectedWordText = tappedWord
-                            selectedWordForSheet = VocabularyItem(word: tappedWord)
-                        }
-                    )
-                }
-            }
-        }
-    }
-
     @MainActor
     private func ensureDetectionDataIfNeeded() async {
         if page.isTextAnalyzed {
@@ -609,64 +919,145 @@ private struct PageDetailView: View {
             showAnalyzeErrorAlert = true
         }
     }
+
+    private func saveEditedSentence() {
+        let trimmed = editingSentenceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let editingSentence else { return }
+
+        if trimmed.isEmpty {
+            showSentenceEditSheet = false
+            deleteSentence(editingSentence)
+            return
+        }
+
+        editingSentence.text = trimmed
+
+        do {
+            try modelContext.save()
+            showSentenceEditSheet = false
+            editingSentenceText = ""
+        } catch {
+            saveErrorMessage = "문장 수정에 실패했습니다."
+            showSaveErrorAlert = true
+        }
+    }
+
+    private func deleteSentence(_ sentence: SentenceItem) {
+        let remainingSentences = reorderedSentences(excluding: sentence.id)
+        applySentenceOrder(remainingSentences)
+
+        modelContext.delete(sentence)
+
+        do {
+            try modelContext.save()
+            if selectedSentenceID == sentence.id {
+                selectedSentenceID = nil
+            }
+            if selectedSentenceForSheet?.id == sentence.id {
+                selectedSentenceForSheet = nil
+            }
+            if editingSentence?.id == sentence.id {
+                editingSentence = nil
+                editingSentenceText = ""
+            }
+            pendingSentenceDeletion = nil
+        } catch {
+            saveErrorMessage = "문장 삭제에 실패했습니다."
+            showSaveErrorAlert = true
+        }
+    }
+
+    private func reorderedSentences(excluding sentenceID: UUID) -> [SentenceItem] {
+        sortedSentences.filter { $0.id != sentenceID }
+    }
+
+    private func applySentenceOrder(_ sentences: [SentenceItem]) {
+        page.sentences = sentences
+        for (index, item) in sentences.enumerated() {
+            item.order = index + 1
+        }
+    }
 }
 
 private struct SentenceRowView: View {
     let sentence: SentenceItem
     let isSelected: Bool
+    let isEditing: Bool
     let selectedWordText: String?
     let savedWords: Set<String>
     let onSentenceTap: () -> Void
+    let onEditTap: () -> Void
     let onWordTap: (String) -> Void
+    let onDeleteTap: () -> Void
 
     private var tokens: [SentenceToken] {
         SentenceToken.build(from: sentence.text)
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Button {
-                onSentenceTap()
-            } label: {
-                Text("\(sentence.order)")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(isSelected ? .white : Color.accentColor)
-                    .frame(width: 24, height: 24)
-                    .background(
-                        Circle()
-                            .fill(isSelected ? Color.accentColor : Color.accentColor.opacity(0.15))
-                    )
-            }
-            .buttonStyle(.plain)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                Button {
+                    onSentenceTap()
+                } label: {
+                    Text("\(sentence.order)")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(isSelected ? .white : Color.accentColor)
+                        .frame(width: 24, height: 24)
+                        .background(
+                            Circle()
+                                .fill(isSelected ? Color.accentColor : Color.accentColor.opacity(0.15))
+                        )
+                }
+                .buttonStyle(.plain)
 
-            FlowWrapLayout(spacing: 4, lineSpacing: 6) {
-                ForEach(tokens) { token in
-                    if token.isWord {
-                        Button {
-                            onWordTap(token.normalized)
-                        } label: {
+                FlowWrapLayout(spacing: 4, lineSpacing: 6) {
+                    ForEach(tokens) { token in
+                        if token.isWord {
+                            Button {
+                                guard !isEditing else { return }
+                                onWordTap(token.normalized)
+                            } label: {
+                                Text(token.text)
+                                    .font(.body)
+                                    .foregroundStyle(.primary)
+                                    .padding(.vertical, 2)
+                                    .padding(.horizontal, 3)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 5)
+                                            .fill(backgroundColor(for: token.normalized))
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.trailing, token.trailingSpacing)
+                        } else {
                             Text(token.text)
                                 .font(.body)
                                 .foregroundStyle(.primary)
-                                .padding(.vertical, 2)
-                                .padding(.horizontal, 3)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 5)
-                                        .fill(backgroundColor(for: token.normalized))
-                                )
+                                .padding(.trailing, token.trailingSpacing)
                         }
-                        .buttonStyle(.plain)
-                        .padding(.trailing, token.trailingSpacing)
-                    } else {
-                        Text(token.text)
-                            .font(.body)
-                            .foregroundStyle(.primary)
-                            .padding(.trailing, token.trailingSpacing)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            Spacer(minLength: 0)
+
+            HStack {
+                Spacer()
+                if isEditing {
+                    Button("수정") {
+                        onEditTap()
+                    }
+                    .font(.caption.weight(.semibold))
+                    .buttonStyle(.borderless)
+
+                    Button("삭제") {
+                        onDeleteTap()
+                    }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.red)
+                    .buttonStyle(.borderless)
+                }
+            }
         }
         .padding(10)
         .background(
@@ -712,6 +1103,47 @@ private struct SentenceToken: Identifiable {
                 normalized: token.lowercased(),
                 trailingSpacing: spacing
             )
+        }
+    }
+}
+
+private struct SentenceEditSheet: View {
+    @Binding var text: String
+    let onCancel: () -> Void
+    let onSave: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("문장을 수정하면 페이지 화면과 페이지 목록의 첫 문장 표시가 바로 갱신됩니다.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                TextEditor(text: $text)
+                    .frame(minHeight: 180)
+                    .padding(8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color(.secondarySystemBackground))
+                    )
+
+                Spacer()
+            }
+            .padding(20)
+            .navigationTitle("문장 수정")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("취소") {
+                        onCancel()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("저장") {
+                        onSave()
+                    }
+                }
+            }
         }
     }
 }

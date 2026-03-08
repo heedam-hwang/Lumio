@@ -6,12 +6,20 @@ final class Book {
     @Attribute(.unique) var id: UUID
     var title: String
     var language: String
+    var coverImageData: Data?
     @Relationship(deleteRule: .cascade, inverse: \Page.book) var pages: [Page]
 
-    init(id: UUID = UUID(), title: String, language: String = "English", pages: [Page] = []) {
+    init(
+        id: UUID = UUID(),
+        title: String,
+        language: String = "English",
+        coverImageData: Data? = nil,
+        pages: [Page] = []
+    ) {
         self.id = id
         self.title = title
         self.language = language
+        self.coverImageData = coverImageData
         self.pages = pages
     }
 }
@@ -20,6 +28,7 @@ final class Book {
 final class Page {
     @Attribute(.unique) var id: UUID
     var title: String?
+    var sortOrder: Int?
     var createdAt: Date
     var imageData: Data?
     var isTextAnalyzed: Bool
@@ -30,6 +39,7 @@ final class Page {
     init(
         id: UUID = UUID(),
         title: String? = nil,
+        sortOrder: Int? = nil,
         createdAt: Date = Date(),
         imageData: Data? = nil,
         isTextAnalyzed: Bool = false,
@@ -39,6 +49,7 @@ final class Page {
     ) {
         self.id = id
         self.title = title
+        self.sortOrder = sortOrder
         self.createdAt = createdAt
         self.imageData = imageData
         self.isTextAnalyzed = isTextAnalyzed
