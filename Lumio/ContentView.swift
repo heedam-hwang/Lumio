@@ -478,30 +478,14 @@ private struct BookPagesView: View {
                 } description: {
                     Text("홈에서 업로드 버튼을 눌러 페이지를 추가해 보세요.")
                 }
+            } else if isEditing {
+                editingPageList
             } else {
-                List {
-                    ForEach(sortedPages) { page in
-                        if isEditing {
-                            pageRowContent(page)
-                                .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
-                        } else {
-                            NavigationLink {
-                                PageDetailView(page: page)
-                            } label: {
-                                pageRowContent(page)
-                            }
-                        }
-                    }
-                }
-                .listStyle(.plain)
+                browsingPageList
             }
         }
         .navigationTitle(book.title)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                EditButton()
-            }
-        }
+        .navigationBarItems(trailing: EditButton())
         .environment(\.editMode, $editMode)
         .alert("페이지 제목 변경", isPresented: $showPageRenameAlert) {
             TextField("페이지 제목", text: $editingPageTitle)
@@ -592,6 +576,36 @@ private struct BookPagesView: View {
         .padding(.horizontal, 12)
     }
 
+    private func pageListRow(_ page: Page) -> AnyView {
+        return AnyView(
+            NavigationLink {
+                PageDetailView(page: page)
+            } label: {
+                pageRowContent(page)
+            }
+        )
+    }
+
+    private var editingPageList: some View {
+        List {
+            ForEach(sortedPages) { page in
+                pageRowContent(page)
+                    .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+            }
+            .onMove(perform: movePages)
+        }
+        .listStyle(.plain)
+    }
+
+    private var browsingPageList: some View {
+        List {
+            ForEach(sortedPages) { page in
+                pageListRow(page)
+            }
+        }
+        .listStyle(.plain)
+    }
+
     private func pageSubtitle(for page: Page) -> String {
         let firstSentence = page.sentences
             .sorted { $0.order < $1.order }
@@ -616,8 +630,35 @@ private struct BookPagesView: View {
         }
     }
 
+    private func movePages(from source: IndexSet, to destination: Int) {
+        var reorderedPages = sortedPages
+        reorderedPages.move(fromOffsets: source, toOffset: destination)
+
+        for (index, page) in reorderedPages.enumerated() {
+            page.sortOrder = index + 1
+        }
+
+        do {
+            try modelContext.save()
+        } catch {
+            saveErrorMessage = "페이지 순서 저장에 실패했습니다."
+            showSaveErrorAlert = true
+        }
+    }
+
     private func pageDisplayComparator(lhs: Page, rhs: Page) -> Bool {
-        return lhs.createdAt > rhs.createdAt
+        let lhsOrder = lhs.sortOrder ?? .max
+        let rhsOrder = rhs.sortOrder ?? .max
+
+        if lhsOrder != rhsOrder {
+            return lhsOrder < rhsOrder
+        }
+
+        if lhs.createdAt != rhs.createdAt {
+            return lhs.createdAt < rhs.createdAt
+        }
+
+        return lhs.id.uuidString < rhs.id.uuidString
     }
 }
 
@@ -654,54 +695,10 @@ private struct PageDetailView: View {
     }
 
     var body: some View {
-        Group {
-            if isEditing {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        pageHeader
-                        sentenceEditorSection
-                    }
-                    .padding(20)
-                }
-            } else {
-                List {
-                    Section {
-                        pageHeader
-                            .listRowInsets(EdgeInsets(top: 18, leading: 20, bottom: 12, trailing: 20))
-                            .listRowSeparator(.hidden)
-                    }
-
-                    Section("문장") {
-                        if sortedSentences.isEmpty {
-                            if page.isTextAnalyzed {
-                                Text("감지된 문장이 없습니다.")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                            } else {
-                                Text("문장 데이터를 준비 중입니다.")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                            }
-                        } else {
-                            ForEach(sortedSentences) { sentence in
-                                sentenceRow(sentence, showsDragHandle: false)
-                                    .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
-                                    .listRowSeparator(.hidden)
-                            }
-                        }
-                    }
-                    .listRowBackground(Color.clear)
-                }
-                .listStyle(.plain)
-            }
-        }
+        pageContentList
         .navigationTitle("페이지")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                EditButton()
-            }
-        }
+        .navigationBarItems(trailing: EditButton())
         .environment(\.editMode, $editMode)
         .overlay {
             if isAnalyzing {
@@ -724,7 +721,7 @@ private struct PageDetailView: View {
             WordLookupSheet(word: word)
             .presentationDetents([.fraction(0.5), .large])
         }
-        .sheet(isPresented: $showSentenceEditSheet) {
+        .sheet(isPresented: $showSentenceEditSheet, onDismiss: resetSentenceEditorState) {
             SentenceEditSheet(
                 text: $editingSentenceText,
                 onCancel: {
@@ -777,6 +774,68 @@ private struct PageDetailView: View {
         editMode == .active
     }
 
+    private var pageContentList: some View {
+        List {
+            pageHeaderSection
+            if isEditing {
+                editingSentenceSection
+            } else {
+                browsingSentenceSection
+            }
+        }
+        .listStyle(.plain)
+    }
+
+    private var pageHeaderSection: some View {
+        Section {
+            pageHeader
+                .listRowInsets(EdgeInsets(top: 18, leading: 20, bottom: 12, trailing: 20))
+                .listRowSeparator(.hidden)
+        }
+    }
+
+    private var editingSentenceSection: some View {
+        Section("문장") {
+            if sortedSentences.isEmpty {
+                sentencePlaceholderView
+            } else {
+                ForEach(sortedSentences) { sentence in
+                    sentenceRow(sentence)
+                        .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                        .listRowSeparator(.hidden)
+                }
+                .onMove(perform: moveSentences)
+            }
+        }
+    }
+
+    private var browsingSentenceSection: some View {
+        Section("문장") {
+            if sortedSentences.isEmpty {
+                sentencePlaceholderView
+            } else {
+                ForEach(sortedSentences) { sentence in
+                    sentenceRow(sentence)
+                        .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                        .listRowSeparator(.hidden)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var sentencePlaceholderView: some View {
+        if page.isTextAnalyzed {
+            Text("감지된 문장이 없습니다.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        } else {
+            Text("문장 데이터를 준비 중입니다.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+    }
+
     private var pageHeader: some View {
         HStack(alignment: .top, spacing: 12) {
             if let data = page.imageData, let uiImage = UIImage(data: data) {
@@ -826,59 +885,33 @@ private struct PageDetailView: View {
         }
     }
 
-    private var sentenceEditorSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("문장")
-                .font(.headline)
-
-            if sortedSentences.isEmpty {
-                Text(page.isTextAnalyzed ? "감지된 문장이 없습니다." : "문장 데이터를 준비 중입니다.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(sortedSentences) { sentence in
-                    sentenceRow(sentence, showsDragHandle: false)
-                }
-            }
-        }
-    }
-
     @ViewBuilder
-    private func sentenceRow(_ sentence: SentenceItem, showsDragHandle: Bool) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            SentenceRowView(
-                sentence: sentence,
-                isSelected: selectedSentenceID == sentence.id,
-                isEditing: isEditing,
-                selectedWordText: selectedWordText,
-                savedWords: savedWordSet,
-                onSentenceTap: {
-                    guard !isEditing else { return }
-                    selectedSentenceID = sentence.id
-                    selectedSentenceForSheet = sentence
-                },
-                onEditTap: {
-                    editingSentence = sentence
-                    editingSentenceText = sentence.text
-                    showSentenceEditSheet = true
-                },
-                onWordTap: { tappedWord in
-                    selectedWordText = tappedWord
-                    selectedWordForSheet = VocabularyItem(word: tappedWord)
-                },
-                onDeleteTap: {
-                    pendingSentenceDeletion = sentence
-                    showSentenceDeleteConfirmation = true
-                }
-            )
-
-            if showsDragHandle {
-                Image(systemName: "line.3.horizontal")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 12)
+    private func sentenceRow(_ sentence: SentenceItem) -> some View {
+        SentenceRowView(
+            sentence: sentence,
+            isSelected: selectedSentenceID == sentence.id,
+            isEditing: isEditing,
+            selectedWordText: selectedWordText,
+            savedWords: savedWordSet,
+            onSentenceTap: {
+                guard !isEditing else { return }
+                selectedSentenceID = sentence.id
+                selectedSentenceForSheet = sentence
+            },
+            onEditTap: {
+                editingSentence = sentence
+                editingSentenceText = sentence.text
+                showSentenceEditSheet = true
+            },
+            onWordTap: { tappedWord in
+                selectedWordText = tappedWord
+                selectedWordForSheet = VocabularyItem(word: tappedWord)
+            },
+            onDeleteTap: {
+                pendingSentenceDeletion = sentence
+                showSentenceDeleteConfirmation = true
             }
-        }
+        )
     }
 
     private var imagePreviewSheet: some View {
@@ -935,7 +968,6 @@ private struct PageDetailView: View {
         do {
             try modelContext.save()
             showSentenceEditSheet = false
-            editingSentenceText = ""
         } catch {
             saveErrorMessage = "문장 수정에 실패했습니다."
             showSaveErrorAlert = true
@@ -976,6 +1008,24 @@ private struct PageDetailView: View {
         for (index, item) in sentences.enumerated() {
             item.order = index + 1
         }
+    }
+
+    private func moveSentences(from source: IndexSet, to destination: Int) {
+        var reordered = sortedSentences
+        reordered.move(fromOffsets: source, toOffset: destination)
+        applySentenceOrder(reordered)
+
+        do {
+            try modelContext.save()
+        } catch {
+            saveErrorMessage = "문장 순서 저장에 실패했습니다."
+            showSaveErrorAlert = true
+        }
+    }
+
+    private func resetSentenceEditorState() {
+        editingSentence = nil
+        editingSentenceText = ""
     }
 }
 

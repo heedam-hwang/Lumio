@@ -21,6 +21,10 @@
 - The changed sentence order must persist when the user re-enters the page
 - If the first sentence changes, the page list screen must show the new first sentence
 
+### 2.3 Keep the input text while saving edited sentences text
+- as-is: input text disappears once the save button is clicked
+- to-be: keep the input text until the save is complete and modal is closed
+
 ## 3. Validation Plan
 - Build checks: build succeeds
 - Test scope: drag reorder interaction, persistence, numbering
