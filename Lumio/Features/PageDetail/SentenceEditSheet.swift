@@ -18,7 +18,7 @@ struct SentenceEditSheet: View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 12) {
                 Text("문장을 수정하면 페이지 화면과 페이지 목록의 첫 문장 표시가 바로 갱신됩니다.")
-                    .font(.footnote)
+                    .font(LumioTypography.helperText)
                     .foregroundStyle(.secondary)
 
                 TextField("문장", text: $text, axis: .vertical)
@@ -26,7 +26,7 @@ struct SentenceEditSheet: View {
                     .padding(12)
                     .background(
                         RoundedRectangle(cornerRadius: 12)
-                            .fill(Color(.secondarySystemBackground))
+                            .fill(LumioColors.systemSecondarySurface)
                     )
 
                 Spacer()

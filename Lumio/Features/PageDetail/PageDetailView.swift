@@ -16,6 +16,7 @@ private struct PageDetailContentList: View {
     let onOpenWord: (String) -> Void
     let onDeleteSentence: (SentenceItem) -> Void
     let onMoveSentences: (IndexSet, Int) -> Void
+    private let canvasColor = LumioColors.canvasWarm
 
     var body: some View {
         List {
@@ -45,6 +46,8 @@ private struct PageDetailContentList: View {
             )
         }
         .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(canvasColor)
         .navigationTitle("페이지")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

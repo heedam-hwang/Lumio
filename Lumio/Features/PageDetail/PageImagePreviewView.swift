@@ -22,7 +22,7 @@ struct PageImagePreviewView: View {
                 Label("닫기", systemImage: "xmark.circle.fill")
                     .labelStyle(.iconOnly)
                     .font(.system(size: 28))
-                    .foregroundStyle(.white.opacity(0.9))
+                    .foregroundStyle(LumioColors.elevatedCardSurface)
                     .padding()
             }
         }

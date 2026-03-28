@@ -10,12 +10,12 @@ struct UploadSourceMenuView: View {
             Button(action: onCameraTap) {
                 Label("카메라", systemImage: "camera")
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .font(.headline)
+                    .font(LumioTypography.menuLabel)
                     .padding(.vertical, 12)
                     .padding(.horizontal, 12)
                     .background(
                         RoundedRectangle(cornerRadius: 10)
-                            .fill(Color(.secondarySystemBackground))
+                            .fill(LumioColors.systemSecondarySurface)
                     )
             }
             .buttonStyle(.plain)
@@ -24,19 +24,19 @@ struct UploadSourceMenuView: View {
             Button(action: onPhotoTap) {
                 Label("포토 라이브러리", systemImage: "photo.on.rectangle")
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .font(.headline)
+                    .font(LumioTypography.menuLabel)
                     .padding(.vertical, 12)
                     .padding(.horizontal, 12)
                     .background(
                         RoundedRectangle(cornerRadius: 10)
-                            .fill(Color(.secondarySystemBackground))
+                            .fill(LumioColors.systemSecondarySurface)
                     )
             }
             .buttonStyle(.plain)
         }
         .padding(14)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-        .shadow(color: .black.opacity(0.14), radius: 10, x: 0, y: 4)
+        .lumioShadow(LumioShadows.menu)
         .frame(width: 230)
     }
 }

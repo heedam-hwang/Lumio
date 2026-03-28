@@ -12,7 +12,7 @@ struct QuickSavePageSheet: View {
                     TextField("페이지 이름 (선택)", text: $pageTitle)
 
                     Text("입력하지 않으면 현재 시간을 기준으로 자동 생성됩니다.")
-                        .font(.footnote)
+                        .font(LumioTypography.helperText)
                         .foregroundStyle(.secondary)
                 }
             }

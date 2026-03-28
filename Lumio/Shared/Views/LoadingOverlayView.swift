@@ -5,7 +5,7 @@ struct LoadingOverlayView: View {
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.25)
+            LumioColors.scrim
                 .ignoresSafeArea()
 
             VStack(spacing: 12) {

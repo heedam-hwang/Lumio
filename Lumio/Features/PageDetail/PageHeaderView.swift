@@ -14,15 +14,15 @@ struct PageHeaderView: View {
                     Image(uiImage: uiImage)
                         .resizable()
                         .scaledToFill()
-                        .frame(width: 72, height: 72)
-                        .clipShape(.rect(cornerRadius: 10))
+                        .frame(width: 92, height: 92)
+                        .clipShape(.rect(cornerRadius: 18))
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("원본 이미지 확대 보기")
             } else {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(Color(.secondarySystemBackground))
-                    .frame(width: 72, height: 72)
+                RoundedRectangle(cornerRadius: 18)
+                    .fill(LumioColors.systemSecondarySurface)
+                    .frame(width: 92, height: 92)
                     .overlay {
                         Image(systemName: "photo")
                             .foregroundStyle(.secondary)
@@ -32,8 +32,7 @@ struct PageHeaderView: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
                     Text(page.title ?? "제목 없음")
-                        .font(.title3)
-                        .bold()
+                        .font(.title3.weight(.semibold))
 
                     if isEditing {
                         Button(action: onRenameTap) {
@@ -46,10 +45,16 @@ struct PageHeaderView: View {
                     }
                 }
 
-                Text(page.createdAt.formatted(date: .abbreviated, time: .shortened))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                Text(page.createdAt.formatted(date: .abbreviated, time: .omitted))
+                    .font(LumioTypography.metadataAccent)
+                    .foregroundStyle(LumioColors.accentFill)
             }
+            .padding(.vertical, 10)
+            .padding(.horizontal, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 18)
+                    .fill(LumioColors.elevatedCardSurface)
+            )
 
             Spacer(minLength: 0)
         }

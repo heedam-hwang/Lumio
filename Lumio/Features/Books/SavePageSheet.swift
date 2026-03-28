@@ -22,7 +22,7 @@ struct SavePageSheet: View {
                     TextField("페이지 이름 (선택)", text: $pageTitle)
 
                     Text("입력하지 않으면 현재 시간을 기준으로 자동 생성됩니다.")
-                        .font(.footnote)
+                        .font(LumioTypography.helperText)
                         .foregroundStyle(.secondary)
                 }
 
@@ -36,7 +36,7 @@ struct SavePageSheet: View {
                     if mode == .existing {
                         if books.isEmpty {
                             Text("선택 가능한 책이 없습니다. '분류하지 않음' 또는 '새 책 생성'을 사용하세요.")
-                                .font(.footnote)
+                                .font(LumioTypography.helperText)
                                 .foregroundStyle(.secondary)
                         } else {
                             Picker("책 선택", selection: $selectedBookID) {

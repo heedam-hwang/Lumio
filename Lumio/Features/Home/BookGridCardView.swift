@@ -14,23 +14,34 @@ struct BookGridCardView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     BookCoverView(coverImageData: book.coverImageData)
 
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 8) {
                         Text(book.title)
-                            .font(.headline)
+                            .font(LumioTypography.cardTitle)
                             .foregroundStyle(.primary)
                             .lineLimit(2)
 
                         Text("페이지 \(book.pages.count)개")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .font(LumioTypography.metadataAccent)
+                            .foregroundStyle(LumioColors.accentFill)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(
+                                Capsule()
+                                    .fill(LumioColors.accentSoftFill)
+                            )
                     }
                     .padding(.horizontal, 2)
                 }
-                .padding(12)
+                .padding(14)
                 .background(
-                    RoundedRectangle(cornerRadius: 22)
-                        .fill(Color(.secondarySystemBackground))
+                    RoundedRectangle(cornerRadius: 26)
+                        .fill(LumioColors.softCardSurface)
                 )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 26)
+                        .stroke(LumioColors.softCardStroke, lineWidth: 1)
+                }
+                .lumioShadow(LumioShadows.card)
             }
             .buttonStyle(.plain)
             .accessibilityHint("선택하면 책의 페이지 목록으로 이동합니다.")
@@ -45,6 +56,8 @@ struct BookGridCardView: View {
                 }
             }
             .labelStyle(.iconOnly)
+            .padding(12)
+            .background(.ultraThinMaterial, in: Circle())
             .padding(10)
         }
         .onChange(of: coverSelection) { _, newItem in

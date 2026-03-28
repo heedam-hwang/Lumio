@@ -5,12 +5,15 @@ struct BookCoverView: View {
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 18)
+            RoundedRectangle(cornerRadius: 20)
                 .fill(
                     LinearGradient(
-                        colors: [Color.orange.opacity(0.9), Color.yellow.opacity(0.55)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
+                        colors: [
+                            LumioColors.coverGradientStart,
+                            LumioColors.coverGradientEnd
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
                     )
                 )
                 .frame(maxWidth: .infinity)
@@ -23,18 +26,34 @@ struct BookCoverView: View {
                     .scaledToFill()
                     .frame(maxWidth: .infinity)
                     .aspectRatio(0.75, contentMode: .fit)
-                    .clipShape(.rect(cornerRadius: 18))
+                    .clipShape(.rect(cornerRadius: 20))
             } else {
-                VStack(alignment: .trailing, spacing: 8) {
+                VStack(alignment: .leading, spacing: 12) {
                     Spacer()
-                    Image(systemName: "books.vertical.fill")
-                        .font(.title.bold())
+                    Text("Lumio")
+                        .font(LumioTypography.cardTitle)
+                    Spacer()
+                    HStack(spacing: 8) {
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(LumioColors.coverSpineBlue)
+                            .frame(width: 26)
+
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(LumioColors.coverSpineGold)
+                            .frame(width: 26)
+                    }
+                    .frame(height: 84)
                 }
-                .foregroundStyle(.white)
+                .foregroundStyle(LumioColors.coverText)
                 .padding(16)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             }
         }
-        .clipShape(.rect(cornerRadius: 18))
+        .clipShape(.rect(cornerRadius: 20))
+        .overlay {
+            RoundedRectangle(cornerRadius: 20)
+                .stroke(LumioColors.softCardStroke, lineWidth: 1)
+        }
+        .lumioShadow(LumioShadows.cover)
     }
 }

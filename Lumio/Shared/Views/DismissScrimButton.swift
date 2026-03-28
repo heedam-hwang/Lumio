@@ -5,7 +5,7 @@ struct DismissScrimButton: View {
 
     var body: some View {
         Button(action: action) {
-            Color.black.opacity(0.001)
+            LumioColors.tapScrim
                 .ignoresSafeArea()
         }
         .buttonStyle(.plain)

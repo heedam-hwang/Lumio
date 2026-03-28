@@ -24,6 +24,8 @@ struct BookPagesView: View {
         _uploadCoordinator = State(initialValue: BookPageUploadCoordinator(book: book))
     }
 
+    private let canvasColor = LumioColors.canvasWarm
+
     private var sortedPages: [Page] {
         book.pages.sorted(by: PageSorting.areInDisplayOrder)
     }
@@ -36,6 +38,9 @@ struct BookPagesView: View {
         @Bindable var uploadCoordinator = uploadCoordinator
 
         ZStack(alignment: .bottomTrailing) {
+            canvasColor
+                .ignoresSafeArea()
+
             if sortedPages.isEmpty {
                 ContentUnavailableView {
                     Label("등록된 페이지가 없습니다", systemImage: "doc")
@@ -57,6 +62,7 @@ struct BookPagesView: View {
                     .onMove(perform: movePages)
                 }
                 .listStyle(.plain)
+                .scrollContentBackground(.hidden)
             } else {
                 List {
                     ForEach(sortedPages) { page in
@@ -72,6 +78,7 @@ struct BookPagesView: View {
                     }
                 }
                 .listStyle(.plain)
+                .scrollContentBackground(.hidden)
             }
 
             if uploadCoordinator.showUploadSourceMenu {
@@ -90,13 +97,13 @@ struct BookPagesView: View {
             }
 
             Button(action: uploadCoordinator.toggleUploadSourceMenu) {
-                Label("이 책에 페이지 추가", systemImage: "plus")
-                    .labelStyle(.iconOnly)
-                    .font(.title3.bold())
-                    .foregroundStyle(.white)
-                    .frame(width: 56, height: 56)
-                    .background(Circle().fill(Color.accentColor))
-                    .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 4)
+                    Label("이 책에 페이지 추가", systemImage: "plus")
+                        .labelStyle(.iconOnly)
+                        .font(LumioTypography.floatingActionSymbol)
+                        .foregroundStyle(.white)
+                        .frame(width: 56, height: 56)
+                    .background(Circle().fill(LumioColors.accentFill))
+                    .lumioShadow(LumioShadows.floatingAction)
             }
             .accessibilityLabel("이 책에 페이지 추가")
             .accessibilityHint("카메라 또는 포토 라이브러리에서 현재 책에 페이지를 추가합니다.")

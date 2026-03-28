@@ -12,16 +12,16 @@ struct SentenceRowView: View {
     let onDeleteTap: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 10) {
                 Button(action: onSentenceTap) {
                     Text("\(sentence.order)")
-                        .font(.caption.bold())
-                        .foregroundStyle(isSelected ? .white : Color.accentColor)
-                        .frame(width: 28, height: 28)
+                        .font(LumioTypography.compactAction)
+                        .foregroundStyle(isSelected ? .white : LumioColors.accentFill)
+                        .frame(width: 30, height: 30)
                         .background(
-                            Circle()
-                                .fill(isSelected ? Color.accentColor : Color.accentColor.opacity(0.15))
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(isSelected ? LumioColors.accentFill : LumioColors.accentTokenFill)
                         )
                 }
                 .buttonStyle(.plain)
@@ -61,29 +61,45 @@ struct SentenceRowView: View {
 
                 if isEditing {
                     Button("수정", action: onEditTap)
-                        .font(.caption.bold())
+                        .font(LumioTypography.compactAction)
                         .buttonStyle(.borderless)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(
+                            Capsule()
+                                .fill(LumioColors.accentSoftFill)
+                        )
 
                     Button("삭제", action: onDeleteTap)
-                        .font(.caption.bold())
-                        .foregroundStyle(.red)
+                        .font(LumioTypography.compactAction)
+                        .foregroundStyle(LumioColors.destructiveFill)
                         .buttonStyle(.borderless)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(
+                            Capsule()
+                                .fill(LumioColors.destructiveSoftFill)
+                        )
                 }
             }
         }
-        .padding(10)
+        .padding(14)
         .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(isSelected ? Color.accentColor.opacity(0.12) : Color(.secondarySystemBackground))
+            RoundedRectangle(cornerRadius: 18)
+                .fill(isSelected ? LumioColors.accentSelectionFill : LumioColors.cardSurface)
         )
+        .overlay {
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(isSelected ? LumioColors.accentSelectionStroke : LumioColors.cardStroke, lineWidth: 1)
+        }
     }
 
     private func backgroundColor(for word: String) -> Color {
         if savedWords.contains(word) {
-            return .yellow.opacity(0.55)
+            return LumioColors.savedWordFill
         }
         if selectedWordText == word {
-            return Color.accentColor.opacity(0.2)
+            return LumioColors.accentWordSelection
         }
         return .clear
     }

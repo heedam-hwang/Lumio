@@ -20,12 +20,16 @@ struct HomeView: View {
         GridItem(.flexible(), spacing: 16),
         GridItem(.flexible(), spacing: 16)
     ]
+    private let canvasColor = LumioColors.canvasWarmAlt
 
     var body: some View {
         @Bindable var uploadCoordinator = uploadCoordinator
 
         NavigationStack(path: $navigationPath) {
             ZStack(alignment: .bottomTrailing) {
+                canvasColor
+                    .ignoresSafeArea()
+
                 if books.isEmpty {
                     ContentUnavailableView {
                         Label("아직 등록된 책이 없습니다", systemImage: "book.closed")
@@ -69,11 +73,11 @@ struct HomeView: View {
                 Button(action: uploadCoordinator.toggleUploadSourceMenu) {
                     Label("책 페이지 업로드", systemImage: "plus")
                         .labelStyle(.iconOnly)
-                        .font(.title3.bold())
+                        .font(LumioTypography.floatingActionSymbol)
                         .foregroundStyle(.white)
                         .frame(width: 56, height: 56)
-                        .background(Circle().fill(Color.accentColor))
-                        .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 4)
+                        .background(Circle().fill(LumioColors.accentFill))
+                        .lumioShadow(LumioShadows.floatingAction)
                 }
                 .accessibilityLabel("책 페이지 업로드")
                 .accessibilityHint("카메라 또는 포토 라이브러리에서 책 페이지를 추가합니다.")
