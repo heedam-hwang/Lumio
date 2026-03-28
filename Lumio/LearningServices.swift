@@ -4,6 +4,11 @@ import SwiftData
 import SwiftUI
 import Translation
 
+struct AudioGuidanceAlert: Identifiable {
+    let id = UUID()
+    let message: String
+}
+
 @MainActor
 final class SpeechService {
     static let shared = SpeechService()
@@ -24,6 +29,32 @@ final class SpeechService {
         utterance.rate = 0.45
         synthesizer.speak(utterance)
     }
+
+    func audioGuidanceMessage() -> String? {
+        let session = AVAudioSession.sharedInstance()
+        let isVolumeOff = session.outputVolume <= 0.001
+        let isMuted: Bool
+
+        if #available(iOS 26.0, *) {
+            isMuted = session.isOutputMuted
+        } else {
+            isMuted = false
+        }
+
+        guard isMuted || isVolumeOff else { return nil }
+        return "소리가 꺼져 있습니다. 무음 모드나 볼륨 설정을 확인해 주세요."
+    }
+
+    func speakIfAvailable(text: String, language: String = "en-US") -> AudioGuidanceAlert? {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+
+        if let message = audioGuidanceMessage() {
+            return AudioGuidanceAlert(message: message)
+        }
+
+        speak(text: text, language: language)
+        return nil
+    }
 }
 
 struct SentenceLookupSheet: View {
@@ -35,6 +66,7 @@ struct SentenceLookupSheet: View {
     @State private var translateError: String?
     @State private var isTranslating = false
     @State private var translationConfig: TranslationSession.Configuration?
+    @State private var audioGuidanceAlert: AudioGuidanceAlert?
 
     var body: some View {
         NavigationStack {
@@ -73,7 +105,7 @@ struct SentenceLookupSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("듣기") {
-                        SpeechService.shared.speak(text: sentence.text)
+                        audioGuidanceAlert = SpeechService.shared.speakIfAvailable(text: sentence.text)
                     }
                 }
             }
@@ -86,6 +118,13 @@ struct SentenceLookupSheet: View {
         }
         .translationTask(translationConfig) { session in
             await translateSentence(session: session)
+        }
+        .alert(item: $audioGuidanceAlert) { alert in
+            Alert(
+                title: Text("소리 확인"),
+                message: Text(alert.message),
+                dismissButton: .default(Text("확인"))
+            )
         }
     }
 
@@ -119,6 +158,7 @@ struct WordLookupSheet: View {
     @State private var saveErrorMessage: String?
     @State private var showSaveErrorAlert = false
     @State private var isSaved = false
+    @State private var audioGuidanceAlert: AudioGuidanceAlert?
 
     var body: some View {
         NavigationStack {
@@ -159,10 +199,14 @@ struct WordLookupSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("닫기") { dismiss() }
                 }
-                ToolbarItemGroup(placement: .confirmationAction) {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("닫기") { dismiss() }
+                }
+                ToolbarItemGroup(placement: .topBarTrailing) {
                     Button("듣기") {
-                        SpeechService.shared.speak(text: word.word)
+                        audioGuidanceAlert = SpeechService.shared.speakIfAvailable(text: word.word)
                     }
+
                     Button {
                         toggleVocabularyBookmark()
                     } label: {
@@ -187,6 +231,13 @@ struct WordLookupSheet: View {
         }, message: {
             Text(saveErrorMessage ?? "단어장 저장에 실패했습니다.")
         })
+        .alert(item: $audioGuidanceAlert) { alert in
+            Alert(
+                title: Text("소리 확인"),
+                message: Text(alert.message),
+                dismissButton: .default(Text("확인"))
+            )
+        }
     }
 
     @MainActor

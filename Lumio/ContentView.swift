@@ -465,28 +465,134 @@ private struct BookPagesView: View {
     @State private var showPageDeleteConfirmation = false
     @State private var saveErrorMessage: String?
     @State private var showSaveErrorAlert = false
+    @State private var showUploadSourceMenu = false
+    @State private var showCamera = false
+    @State private var showPhotoPicker = false
+    @State private var selectedPhotoItem: PhotosPickerItem?
+    @State private var pendingImageData: Data?
+    @State private var showQuickSaveSheet = false
+    @State private var customPageTitle = ""
+    @State private var isAnalyzingUpload = false
+    @State private var uploadErrorMessage: String?
+    @State private var showUploadErrorAlert = false
 
     private var sortedPages: [Page] {
         book.pages.sorted(by: pageDisplayComparator)
     }
 
     var body: some View {
-        Group {
-            if sortedPages.isEmpty {
-                ContentUnavailableView {
-                    Label("등록된 페이지가 없습니다", systemImage: "doc")
-                } description: {
-                    Text("홈에서 업로드 버튼을 눌러 페이지를 추가해 보세요.")
+        ZStack(alignment: .bottomTrailing) {
+            Group {
+                if sortedPages.isEmpty {
+                    ContentUnavailableView {
+                        Label("등록된 페이지가 없습니다", systemImage: "doc")
+                    } description: {
+                        Text("이 화면에서 바로 페이지를 추가해 보세요.")
+                    }
+                } else if isEditing {
+                    editingPageList
+                } else {
+                    browsingPageList
                 }
-            } else if isEditing {
-                editingPageList
-            } else {
-                browsingPageList
             }
+
+            if showUploadSourceMenu {
+                Color.black.opacity(0.001)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        showUploadSourceMenu = false
+                    }
+                    .zIndex(1)
+
+                UploadSourceMenuView(
+                    onCameraTap: {
+                        showUploadSourceMenu = false
+                        showCamera = true
+                    },
+                    onPhotoTap: {
+                        showUploadSourceMenu = false
+                        showPhotoPicker = true
+                    }
+                )
+                .padding(.trailing, 20)
+                .padding(.bottom, 86)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                .zIndex(2)
+            }
+
+            Button {
+                showUploadSourceMenu.toggle()
+            } label: {
+                Image(systemName: "plus")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 56, height: 56)
+                    .background(Circle().fill(Color.accentColor))
+                    .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 4)
+            }
+            .accessibilityLabel("이 책에 페이지 추가")
+            .accessibilityHint("카메라 또는 포토 라이브러리에서 현재 책에 페이지를 추가합니다.")
+            .padding(.trailing, 20)
+            .padding(.bottom, 20)
+            .disabled(isAnalyzingUpload)
+            .zIndex(3)
         }
         .navigationTitle(book.title)
         .navigationBarItems(trailing: EditButton())
         .environment(\.editMode, $editMode)
+        .overlay {
+            if isAnalyzingUpload {
+                LoadingOverlayView(title: "문장/단어 감지 중")
+            }
+        }
+        .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhotoItem, matching: .images)
+        .onChange(of: selectedPhotoItem) { _, newItem in
+            guard let newItem else { return }
+            Task {
+                do {
+                    if let data = try await newItem.loadTransferable(type: Data.self) {
+                        await MainActor.run {
+                            prepareImageForSave(data)
+                        }
+                    } else {
+                        await MainActor.run {
+                            uploadErrorMessage = "선택한 사진을 읽을 수 없습니다."
+                            showUploadErrorAlert = true
+                        }
+                    }
+                } catch {
+                    await MainActor.run {
+                        uploadErrorMessage = "사진 불러오기에 실패했습니다. 다시 시도해 주세요."
+                        showUploadErrorAlert = true
+                    }
+                }
+            }
+        }
+        .fullScreenCover(isPresented: $showCamera) {
+            CameraPicker { imageData in
+                prepareImageForSave(imageData)
+            }
+            .ignoresSafeArea()
+        }
+        .sheet(isPresented: $showQuickSaveSheet, onDismiss: {
+            pendingImageData = nil
+            selectedPhotoItem = nil
+            customPageTitle = ""
+        }) {
+            QuickSavePageSheet(
+                pageTitle: $customPageTitle,
+                onCancel: {
+                    showQuickSaveSheet = false
+                },
+                onSave: {
+                    showQuickSaveSheet = false
+                    Task {
+                        await createPageAndAnalyze(pageTitle: customPageTitle)
+                    }
+                }
+            )
+            .presentationDetents([.medium])
+        }
         .alert("페이지 제목 변경", isPresented: $showPageRenameAlert) {
             TextField("페이지 제목", text: $editingPageTitle)
             Button("취소", role: .cancel) {}
@@ -521,6 +627,11 @@ private struct BookPagesView: View {
             }
         }, message: {
             Text("삭제한 페이지는 복구할 수 없습니다.")
+        })
+        .alert("OCR 처리 실패", isPresented: $showUploadErrorAlert, actions: {
+            Button("확인", role: .cancel) {}
+        }, message: {
+            Text(uploadErrorMessage ?? "문장/단어 감지에 실패했습니다.")
         })
     }
 
@@ -618,6 +729,57 @@ private struct BookPagesView: View {
         }
 
         return page.isTextAnalyzed ? "감지된 첫 문장이 없습니다." : "문장 분석 중"
+    }
+
+    private func prepareImageForSave(_ imageData: Data) {
+        pendingImageData = imageData
+        showQuickSaveSheet = true
+    }
+
+    @MainActor
+    private func createPageAndAnalyze(pageTitle: String) async {
+        guard let imageData = pendingImageData else { return }
+
+        isAnalyzingUpload = true
+        defer {
+            isAnalyzingUpload = false
+            pendingImageData = nil
+            selectedPhotoItem = nil
+        }
+
+        let page = Page(
+            title: resolvedPageTitle(input: pageTitle),
+            sortOrder: nextPageSortOrder(in: book),
+            createdAt: Date(),
+            imageData: imageData,
+            book: book
+        )
+        modelContext.insert(page)
+
+        do {
+            try modelContext.save()
+            try await PageTextAnalyzer.analyzeIfNeeded(page: page, context: modelContext)
+        } catch {
+            uploadErrorMessage = error.localizedDescription
+            showUploadErrorAlert = true
+        }
+    }
+
+    private func makeDefaultPageTitle(date: Date = Date()) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ko_KR")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return "페이지 \(formatter.string(from: date))"
+    }
+
+    private func resolvedPageTitle(input: String) -> String {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? makeDefaultPageTitle() : trimmed
+    }
+
+    private func nextPageSortOrder(in book: Book) -> Int {
+        let currentMax = book.pages.compactMap(\.sortOrder).max() ?? 0
+        return currentMax + 1
     }
 
     private func deletePage(_ page: Page) {
@@ -1372,6 +1534,39 @@ private struct SavePageSheet: View {
     }
 }
 
+private struct QuickSavePageSheet: View {
+    @Binding var pageTitle: String
+    let onCancel: () -> Void
+    let onSave: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("페이지 이름") {
+                    TextField("페이지 이름 (선택)", text: $pageTitle)
+                    Text("입력하지 않으면 현재 시간을 기준으로 자동 생성됩니다.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("페이지 저장")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("취소") {
+                        onCancel()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("저장") {
+                        onSave()
+                    }
+                }
+            }
+        }
+    }
+}
+
 private struct LoadingOverlayView: View {
     let title: String
 
@@ -1396,6 +1591,7 @@ private struct VocabularyView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: [SortDescriptor(\SavedVocabulary.createdAt, order: .reverse)]) private var savedWords: [SavedVocabulary]
     @State private var unbookmarkingWordIDs = Set<UUID>()
+    @State private var audioGuidanceAlert: AudioGuidanceAlert?
 
     var body: some View {
         Group {
@@ -1412,7 +1608,7 @@ private struct VocabularyView: View {
                             Text(item.word)
                                 .font(.headline)
                             Button {
-                                SpeechService.shared.speak(text: item.word)
+                                audioGuidanceAlert = SpeechService.shared.speakIfAvailable(text: item.word)
                             } label: {
                                 Image(systemName: "speaker.wave.2.fill")
                             }
@@ -1443,6 +1639,13 @@ private struct VocabularyView: View {
             }
         }
         .navigationTitle("단어장")
+        .alert(item: $audioGuidanceAlert) { alert in
+            Alert(
+                title: Text("소리 확인"),
+                message: Text(alert.message),
+                dismissButton: .default(Text("확인"))
+            )
+        }
     }
 
     private func remove(_ item: SavedVocabulary) {
