@@ -30,18 +30,15 @@ struct PageHeaderView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(page.title ?? "제목 없음")
                         .font(.title3.weight(.semibold))
 
                     if isEditing {
-                        Button(action: onRenameTap) {
-                            Label("페이지 이름 수정", systemImage: "pencil")
-                                .labelStyle(.iconOnly)
-                                .frame(width: 44, height: 44)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("페이지 이름 수정")
+                        Button("이름 수정", action: onRenameTap)
+                            .buttonStyle(.plain)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
                     }
                 }
 

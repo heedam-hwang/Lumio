@@ -7,19 +7,20 @@ struct BookGridCardView: View {
     let onChangeCover: (Data) -> Void
 
     @State private var coverSelection: PhotosPickerItem?
+    @State private var showCoverPicker = false
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            NavigationLink(value: HomeRoute.book(book.id)) {
-                VStack(alignment: .leading, spacing: 12) {
-                    BookCoverView(coverImageData: book.coverImageData)
+        NavigationLink(value: HomeRoute.book(book.id)) {
+            VStack(alignment: .leading, spacing: 12) {
+                BookCoverView(coverImageData: book.coverImageData)
 
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(book.title)
-                            .font(LumioTypography.cardTitle)
-                            .foregroundStyle(.primary)
-                            .lineLimit(2)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(book.title)
+                        .font(LumioTypography.cardTitle)
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
 
+                    HStack(spacing: 8) {
                         Text("페이지 \(book.pages.count)개")
                             .font(LumioTypography.metadataAccent)
                             .foregroundStyle(LumioColors.accentFill)
@@ -29,37 +30,53 @@ struct BookGridCardView: View {
                                 Capsule()
                                     .fill(LumioColors.accentSoftFill)
                             )
+
+                        Spacer(minLength: 0)
+
+                        Menu {
+                            Button {
+                                showCoverPicker = true
+                            } label: {
+                                Label("표지 변경", systemImage: "photo")
+                            }
+
+                            Button(action: onRename) {
+                                Label("책 이름 변경", systemImage: "pencil")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .frame(width: 18, height: 18)
+                                .padding(11)
+                                .background(
+                                    Circle()
+                                        .fill(.ultraThinMaterial)
+                                )
+                                .contentShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("책 옵션")
                     }
-                    .padding(.horizontal, 2)
                 }
-                .padding(14)
-                .background(
-                    RoundedRectangle(cornerRadius: 26)
-                        .fill(LumioColors.softCardSurface)
-                )
-                .overlay {
-                    RoundedRectangle(cornerRadius: 26)
-                        .stroke(LumioColors.softCardStroke, lineWidth: 1)
-                }
-                .lumioShadow(LumioShadows.card)
+                .padding(.horizontal, 2)
             }
-            .buttonStyle(.plain)
-            .accessibilityHint("선택하면 책의 페이지 목록으로 이동합니다.")
-
-            Menu("책 옵션", systemImage: "ellipsis.circle") {
-                PhotosPicker(selection: $coverSelection, matching: .images) {
-                    Label("표지 변경", systemImage: "photo")
-                }
-
-                Button(action: onRename) {
-                    Label("책 이름 변경", systemImage: "pencil")
-                }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 26)
+                    .fill(LumioColors.softCardSurface)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 26)
+                    .stroke(LumioColors.softCardStroke, lineWidth: 1)
             }
-            .labelStyle(.iconOnly)
-            .padding(12)
-            .background(.ultraThinMaterial, in: Circle())
-            .padding(10)
+            .lumioShadow(LumioShadows.card)
         }
+        .buttonStyle(.plain)
+        .accessibilityHint("선택하면 책의 페이지 목록으로 이동합니다.")
+        .photosPicker(
+            isPresented: $showCoverPicker,
+            selection: $coverSelection,
+            matching: .images
+        )
         .onChange(of: coverSelection) { _, newItem in
             guard let newItem else { return }
 

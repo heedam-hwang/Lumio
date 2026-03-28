@@ -3,60 +3,61 @@ import SwiftUI
 struct BookPageRowView: View {
     let page: Page
     let subtitle: String
+    let showsTopDivider: Bool
     let isEditing: Bool
     let onRename: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            pageThumbnail
+        VStack(alignment: .leading, spacing: 12) {
+            if showsTopDivider {
+                Divider()
+            }
 
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
-                    Text(page.title ?? "제목 없음")
-                        .font(LumioTypography.cardTitle)
+            HStack(alignment: .top, spacing: 10) {
+                pageThumbnail
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .top, spacing: 8) {
+                        Text(page.title ?? "제목 없음")
+                            .font(LumioTypography.cardTitle)
+                            .lineLimit(1)
+
+                        Spacer(minLength: 0)
+
+                        if isEditing {
+                            Button("이름 수정", action: onRename)
+                                .buttonStyle(.borderless)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+
+                            Button("삭제", role: .destructive, action: onDelete)
+                                .buttonStyle(.borderless)
+                                .font(.caption.weight(.semibold))
+                        }
+                    }
+
+                    Text(subtitle)
+                        .font(LumioTypography.bodySecondary)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
 
-                    if isEditing {
-                        Button(action: onRename) {
-                            Label("페이지 이름 수정", systemImage: "pencil")
-                                .labelStyle(.iconOnly)
-                                .frame(width: 44, height: 44)
-                        }
-                        .buttonStyle(.borderless)
-                        .accessibilityLabel("페이지 이름 수정")
-
-                        Button(action: onDelete) {
-                            Label("페이지 삭제", systemImage: "trash")
-                                .labelStyle(.iconOnly)
-                                .frame(width: 44, height: 44)
-                        }
-                        .buttonStyle(.borderless)
-                        .foregroundStyle(LumioColors.destructiveFill)
-                        .accessibilityLabel("페이지 삭제")
-                    }
+                    Text(page.createdAt.formatted(date: .numeric, time: .omitted))
+                        .font(LumioTypography.metadataAccent)
+                        .foregroundStyle(.secondary)
                 }
-
-                Text(subtitle)
-                    .font(LumioTypography.bodySecondary)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-
-                Text(page.createdAt.formatted(date: .numeric, time: .omitted))
-                    .font(LumioTypography.metadataAccent)
-                    .foregroundStyle(LumioColors.accentFill)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.vertical, 12)
-        .padding(.horizontal, 12)
-        .background(
-            RoundedRectangle(cornerRadius: 18)
-                .fill(LumioColors.cardSurface)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 18)
-                .stroke(LumioColors.cardStroke, lineWidth: 1)
+            .padding(.vertical, 12)
+            .padding(.horizontal, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 18)
+                    .fill(LumioColors.cardSurface)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 18)
+                    .stroke(LumioColors.cardStroke, lineWidth: 1)
+            }
         }
     }
 

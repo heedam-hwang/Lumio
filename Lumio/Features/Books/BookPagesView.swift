@@ -49,15 +49,17 @@ struct BookPagesView: View {
                 }
             } else if isEditing {
                 List {
-                    ForEach(sortedPages) { page in
+                    ForEach(Array(sortedPages.enumerated()), id: \.element.id) { index, page in
                         BookPageRowView(
                             page: page,
                             subtitle: pageSubtitle(for: page),
+                            showsTopDivider: index != 0,
                             isEditing: true,
                             onRename: { beginRenaming(page) },
                             onDelete: { confirmDelete(page) }
                         )
                         .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                        .listRowSeparator(.hidden)
                     }
                     .onMove(perform: movePages)
                 }
@@ -65,16 +67,18 @@ struct BookPagesView: View {
                 .scrollContentBackground(.hidden)
             } else {
                 List {
-                    ForEach(sortedPages) { page in
+                    ForEach(Array(sortedPages.enumerated()), id: \.element.id) { index, page in
                         NavigationLink(value: HomeRoute.page(bookID: book.id, pageID: page.id)) {
                             BookPageRowView(
                                 page: page,
                                 subtitle: pageSubtitle(for: page),
+                                showsTopDivider: index != 0,
                                 isEditing: false,
                                 onRename: {},
                                 onDelete: {}
                             )
                         }
+                        .listRowSeparator(.hidden)
                     }
                 }
                 .listStyle(.plain)

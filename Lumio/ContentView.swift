@@ -10,7 +10,9 @@ struct ContentView: View {
             }
 
             Tab("단어장", systemImage: "book", value: .vocabulary) {
-                VocabularyView()
+                NavigationStack {
+                    VocabularyView()
+                }
             }
         }
     }

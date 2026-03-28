@@ -14,7 +14,7 @@ struct SentenceListSectionView: View {
     let onMove: ((IndexSet, Int) -> Void)?
 
     var body: some View {
-        Section("문장") {
+        Section {
             if sentences.isEmpty {
                 Text(pageIsTextAnalyzed ? "감지된 문장이 없습니다." : "문장 데이터를 준비 중입니다.")
                     .font(.subheadline)
