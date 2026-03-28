@@ -10,8 +10,6 @@ struct SentenceRowView: View {
     let onEditTap: () -> Void
     let onWordTap: (String) -> Void
     let onDeleteTap: () -> Void
-    let onMoveUpTap: (() -> Void)?
-    let onMoveDownTap: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -62,18 +60,6 @@ struct SentenceRowView: View {
                 Spacer()
 
                 if isEditing {
-                    if let onMoveUpTap {
-                        Button("위로", action: onMoveUpTap)
-                            .font(.caption.bold())
-                            .buttonStyle(.borderless)
-                    }
-
-                    if let onMoveDownTap {
-                        Button("아래로", action: onMoveDownTap)
-                            .font(.caption.bold())
-                            .buttonStyle(.borderless)
-                    }
-
                     Button("수정", action: onEditTap)
                         .font(.caption.bold())
                         .buttonStyle(.borderless)

@@ -15,8 +15,7 @@ private struct PageDetailContentList: View {
     let onEditSentence: (SentenceItem) -> Void
     let onOpenWord: (String) -> Void
     let onDeleteSentence: (SentenceItem) -> Void
-    let onMoveSentenceUp: (SentenceItem) -> Void
-    let onMoveSentenceDown: (SentenceItem) -> Void
+    let onMoveSentences: (IndexSet, Int) -> Void
 
     var body: some View {
         List {
@@ -42,8 +41,7 @@ private struct PageDetailContentList: View {
                 onEditTap: onEditSentence,
                 onWordTap: onOpenWord,
                 onDeleteTap: onDeleteSentence,
-                onMoveUpTap: isEditing ? onMoveSentenceUp : nil,
-                onMoveDownTap: isEditing ? onMoveSentenceDown : nil
+                onMove: isEditing ? onMoveSentences : nil
             )
         }
         .listStyle(.plain)
@@ -107,9 +105,9 @@ struct PageDetailView: View {
             onEditSentence: beginSentenceEditing,
             onOpenWord: openWord,
             onDeleteSentence: confirmSentenceDelete,
-            onMoveSentenceUp: moveSentenceUp,
-            onMoveSentenceDown: moveSentenceDown
+            onMoveSentences: moveSentences
         )
+        .environment(\.editMode, $editMode)
         .overlay {
             if isAnalyzing {
                 LoadingOverlayView(title: "문장/단어 감지 중")
@@ -280,34 +278,6 @@ struct PageDetailView: View {
     private func moveSentences(from source: IndexSet, to destination: Int) {
         var reordered = sortedSentences
         reordered.move(fromOffsets: source, toOffset: destination)
-        applySentenceOrder(reordered)
-
-        do {
-            try modelContext.save()
-        } catch {
-            saveErrorMessage = "문장 순서 저장에 실패했습니다."
-            showSaveErrorAlert = true
-        }
-    }
-
-    private func moveSentenceUp(_ sentence: SentenceItem) {
-        guard let index = sortedSentences.firstIndex(where: { $0.id == sentence.id }), index > 0 else {
-            return
-        }
-        moveSentence(at: index, to: index - 1)
-    }
-
-    private func moveSentenceDown(_ sentence: SentenceItem) {
-        guard let index = sortedSentences.firstIndex(where: { $0.id == sentence.id }), index < sortedSentences.count - 1 else {
-            return
-        }
-        moveSentence(at: index, to: index + 1)
-    }
-
-    private func moveSentence(at source: Int, to destination: Int) {
-        var reordered = sortedSentences
-        let sentence = reordered.remove(at: source)
-        reordered.insert(sentence, at: destination)
         applySentenceOrder(reordered)
 
         do {

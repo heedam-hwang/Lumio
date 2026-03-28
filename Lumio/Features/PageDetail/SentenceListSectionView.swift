@@ -11,8 +11,7 @@ struct SentenceListSectionView: View {
     let onEditTap: (SentenceItem) -> Void
     let onWordTap: (String) -> Void
     let onDeleteTap: (SentenceItem) -> Void
-    let onMoveUpTap: ((SentenceItem) -> Void)?
-    let onMoveDownTap: ((SentenceItem) -> Void)?
+    let onMove: ((IndexSet, Int) -> Void)?
 
     var body: some View {
         Section("문장") {
@@ -31,13 +30,12 @@ struct SentenceListSectionView: View {
                         onSentenceTap: { onSentenceTap(sentence) },
                         onEditTap: { onEditTap(sentence) },
                         onWordTap: onWordTap,
-                        onDeleteTap: { onDeleteTap(sentence) },
-                        onMoveUpTap: onMoveUpTap.map { handler in { handler(sentence) } },
-                        onMoveDownTap: onMoveDownTap.map { handler in { handler(sentence) } }
+                        onDeleteTap: { onDeleteTap(sentence) }
                     )
                     .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
                     .listRowSeparator(.hidden)
                 }
+                .onMove(perform: onMove)
             }
         }
     }
