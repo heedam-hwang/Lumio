@@ -5,15 +5,19 @@ struct BookGridCardView: View {
     let book: Book
     let onRename: () -> Void
     let onChangeCover: (Data) -> Void
+    let onDeleteCover: () -> Void
 
     @State private var coverSelection: PhotosPickerItem?
     @State private var showCoverPicker = false
+    @State private var showDeleteCoverAlert = false
 
     var body: some View {
         NavigationLink(value: HomeRoute.book(book.id)) {
             VStack(alignment: .leading, spacing: 12) {
-                BookCoverView(coverImageData: book.coverImageData)
-
+                BookCoverView(
+                    placeholderPaletteSeed: book.placeholderPaletteSeed,
+                    coverImageData: book.coverImageData
+                )
                 VStack(alignment: .leading, spacing: 8) {
                     Text(book.title)
                         .font(LumioTypography.cardTitle)
@@ -38,6 +42,14 @@ struct BookGridCardView: View {
                                 showCoverPicker = true
                             } label: {
                                 Label("표지 변경", systemImage: "photo")
+                            }
+
+                            if book.coverImageData != nil {
+                                Button(role: .destructive) {
+                                    showDeleteCoverAlert = true
+                                } label: {
+                                    Label("표지 삭제", systemImage: "trash")
+                                }
                             }
 
                             Button(action: onRename) {
@@ -77,6 +89,12 @@ struct BookGridCardView: View {
             selection: $coverSelection,
             matching: .images
         )
+        .alert("표지를 삭제할까요?", isPresented: $showDeleteCoverAlert) {
+            Button("취소", role: .cancel) {}
+            Button("삭제", role: .destructive, action: onDeleteCover)
+        } message: {
+            Text("삭제한 표지는 복구할 수 없습니다.")
+        }
         .onChange(of: coverSelection) { _, newItem in
             guard let newItem else { return }
 

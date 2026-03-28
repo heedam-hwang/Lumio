@@ -45,6 +45,9 @@ struct HomeView: View {
                                     onRename: { beginRenaming(book) },
                                     onChangeCover: { imageData in
                                         saveBookCover(book: book, imageData: imageData)
+                                    },
+                                    onDeleteCover: {
+                                        removeBookCover(book: book)
                                     }
                                 )
                             }
@@ -101,6 +104,9 @@ struct HomeView: View {
             selection: $selectedPhotoItem,
             matching: .images
         )
+        .task {
+            ensureBookPlaceholderPaletteSeeds()
+        }
         .onChange(of: selectedPhotoItem) { _, newItem in
             loadSelectedPhotoItem(newItem)
             selectedPhotoItem = nil
@@ -189,6 +195,33 @@ struct HomeView: View {
             try modelContext.save()
         } catch {
             persistenceErrorMessage = "책 표지 저장에 실패했습니다."
+            showPersistenceErrorAlert = true
+        }
+    }
+
+    private func removeBookCover(book: Book) {
+        book.coverImageData = nil
+
+        do {
+            try modelContext.save()
+        } catch {
+            persistenceErrorMessage = "책 표지 삭제에 실패했습니다."
+            showPersistenceErrorAlert = true
+        }
+    }
+
+    private func ensureBookPlaceholderPaletteSeeds() {
+        let booksNeedingSeed = books.filter { $0.placeholderPaletteSeed == nil }
+        guard !booksNeedingSeed.isEmpty else { return }
+
+        for book in booksNeedingSeed {
+            book.placeholderPaletteSeed = Int.random(in: 0..<1_000)
+        }
+
+        do {
+            try modelContext.save()
+        } catch {
+            persistenceErrorMessage = "책 표지 배경 설정 저장에 실패했습니다."
             showPersistenceErrorAlert = true
         }
     }
