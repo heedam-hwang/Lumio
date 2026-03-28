@@ -46,12 +46,70 @@ final class OCRTextProcessorTests: XCTestCase {
     }
 }
 
+final class SentenceTokenTests: XCTestCase {
+    func testBuildCreatesWordAndPunctuationTokensInOrder() {
+        let tokens = SentenceToken.build(from: "Hello, world!")
+
+        XCTAssertEqual(tokens.map(\.text), ["Hello", ",", "world", "!"])
+        XCTAssertEqual(tokens.map(\.isWord), [true, false, true, false])
+        XCTAssertEqual(tokens.map(\.normalized), ["hello", ",", "world", "!"])
+    }
+}
+
+@MainActor
+final class HomeUploadCoordinatorTests: XCTestCase {
+    func testResolveTargetBookCreatesNewBookForNewMode() throws {
+        let container = try makeInMemoryContainer()
+        let context = ModelContext(container)
+        let coordinator = HomeUploadCoordinator()
+
+        let resolved = coordinator.resolveTargetBook(
+            mode: .new,
+            selectedBook: nil,
+            newBookTitle: "New Book",
+            modelContext: context
+        )
+
+        XCTAssertEqual(resolved.title, "New Book")
+    }
+
+    func testResolveTargetBookFallsBackToUnclassifiedWhenNewTitleIsEmpty() throws {
+        let container = try makeInMemoryContainer()
+        let context = ModelContext(container)
+        let coordinator = HomeUploadCoordinator()
+
+        let resolved = coordinator.resolveTargetBook(
+            mode: .new,
+            selectedBook: nil,
+            newBookTitle: "   ",
+            modelContext: context
+        )
+
+        XCTAssertEqual(resolved.title, "분류되지 않음")
+    }
+}
+
+@MainActor
+final class WordLookupModelTests: XCTestCase {
+    func testToggleVocabularyBookmarkSavesAndDeletesWord() throws {
+        let container = try makeInMemoryContainer()
+        let context = ModelContext(container)
+        let model = WordLookupModel(word: VocabularyItem(word: "hello"))
+
+        model.toggleVocabularyBookmark(context: context)
+        XCTAssertTrue(model.isSaved)
+        XCTAssertEqual(try context.fetch(FetchDescriptor<SavedVocabulary>()).count, 1)
+
+        model.toggleVocabularyBookmark(context: context)
+        XCTAssertFalse(model.isSaved)
+        XCTAssertEqual(try context.fetch(FetchDescriptor<SavedVocabulary>()).count, 0)
+    }
+}
+
 @MainActor
 final class PageTextAnalyzerTests: XCTestCase {
     func testAnalyzeWithoutImageMarksPageAsAnalyzed() async throws {
-        let schema = Schema([Book.self, Page.self, SentenceItem.self, VocabularyItem.self, SavedVocabulary.self])
-        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
-        let container = try ModelContainer(for: schema, configurations: [configuration])
+        let container = try makeInMemoryContainer()
         let context = ModelContext(container)
 
         let book = Book(title: "Test Book")
@@ -68,4 +126,38 @@ final class PageTextAnalyzerTests: XCTestCase {
         XCTAssertTrue(page.sentences.isEmpty)
         XCTAssertTrue(page.vocabularies.isEmpty)
     }
+}
+
+final class PageSortingTests: XCTestCase {
+    func testDisplayOrderPrefersSortOrderThenCreatedAtThenIdentifier() {
+        let earlier = Page(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+            title: "A",
+            sortOrder: 1,
+            createdAt: .distantFuture
+        )
+        let later = Page(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
+            title: "B",
+            sortOrder: 2,
+            createdAt: .distantPast
+        )
+
+        XCTAssertTrue(PageSorting.areInDisplayOrder(earlier, later))
+
+        let sameOrderEarlierDate = Page(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000003")!,
+            title: "C",
+            sortOrder: 2,
+            createdAt: .distantPast
+        )
+
+        XCTAssertTrue(PageSorting.areInDisplayOrder(sameOrderEarlierDate, later))
+    }
+}
+
+private func makeInMemoryContainer() throws -> ModelContainer {
+    let schema = Schema([Book.self, Page.self, SentenceItem.self, VocabularyItem.self, SavedVocabulary.self])
+    let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+    return try ModelContainer(for: schema, configurations: [configuration])
 }

@@ -3,3 +3,4 @@ Lumio.xcodeproj/project.pbxproj
 .DS_Store
 *.xcuserstate
 xcuserdata/
+.codex/config.toml
