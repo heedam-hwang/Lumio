@@ -8,16 +8,14 @@ struct BookCoverView: View {
         ZStack {
             RoundedRectangle(cornerRadius: 20)
                 .fill(backgroundFill)
-                .frame(maxWidth: .infinity)
-                .aspectRatio(0.75, contentMode: .fit)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             if let coverImageData,
                let uiImage = UIImage(data: coverImageData) {
                 Image(uiImage: uiImage)
                     .resizable()
                     .scaledToFill()
-                    .frame(maxWidth: .infinity)
-                    .aspectRatio(0.75, contentMode: .fit)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .clipShape(.rect(cornerRadius: 20))
             } else {
                 Image(systemName: "books.vertical.fill")
@@ -27,6 +25,8 @@ struct BookCoverView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             }
         }
+        .frame(maxWidth: .infinity)
+        .aspectRatio(0.75, contentMode: .fit)
         .clipShape(.rect(cornerRadius: 20))
         .overlay {
             RoundedRectangle(cornerRadius: 20)

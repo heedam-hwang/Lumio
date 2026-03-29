@@ -6,6 +6,7 @@ struct BookGridCardView: View {
     let onRename: () -> Void
     let onChangeCover: (Data) -> Void
     let onDeleteCover: () -> Void
+    let onDeleteBook: () -> Void
 
     @State private var coverSelection: PhotosPickerItem?
     @State private var showCoverPicker = false
@@ -54,6 +55,10 @@ struct BookGridCardView: View {
 
                             Button(action: onRename) {
                                 Label("책 이름 변경", systemImage: "pencil")
+                            }
+
+                            Button(role: .destructive, action: onDeleteBook) {
+                                Label("책 삭제", systemImage: "trash.fill")
                             }
                         } label: {
                             Image(systemName: "ellipsis")

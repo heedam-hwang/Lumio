@@ -13,6 +13,8 @@ struct HomeView: View {
     @State private var editingBook: Book?
     @State private var editingBookTitle = ""
     @State private var showBookRenameAlert = false
+    @State private var pendingBookDeletion: Book?
+    @State private var showBookDeleteAlert = false
     @State private var persistenceErrorMessage: String?
     @State private var showPersistenceErrorAlert = false
 
@@ -48,6 +50,9 @@ struct HomeView: View {
                                     },
                                     onDeleteCover: {
                                         removeBookCover(book: book)
+                                    },
+                                    onDeleteBook: {
+                                        confirmDelete(book)
                                     }
                                 )
                             }
@@ -140,6 +145,16 @@ struct HomeView: View {
         } message: {
             Text("홈 화면의 책 분류 이름을 수정합니다.")
         }
+        .alert("책을 삭제할까요?", isPresented: $showBookDeleteAlert, presenting: pendingBookDeletion) { book in
+            Button("취소", role: .cancel) {
+                pendingBookDeletion = nil
+            }
+            Button("삭제", role: .destructive) {
+                deleteBook(book)
+            }
+        } message: { book in
+            Text("'\(book.title)'과(와) 연결된 페이지 데이터가 함께 삭제됩니다.")
+        }
         .alert("저장 실패", isPresented: $showPersistenceErrorAlert) {} message: {
             Text(persistenceErrorMessage ?? "데이터 저장에 실패했습니다.")
         }
@@ -174,6 +189,11 @@ struct HomeView: View {
         showBookRenameAlert = true
     }
 
+    private func confirmDelete(_ book: Book) {
+        pendingBookDeletion = book
+        showBookDeleteAlert = true
+    }
+
     private func saveEditedBookTitle() {
         let trimmed = editingBookTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let editingBook else { return }
@@ -206,6 +226,18 @@ struct HomeView: View {
             try modelContext.save()
         } catch {
             persistenceErrorMessage = "책 표지 삭제에 실패했습니다."
+            showPersistenceErrorAlert = true
+        }
+    }
+
+    private func deleteBook(_ book: Book) {
+        modelContext.delete(book)
+
+        do {
+            try modelContext.save()
+            pendingBookDeletion = nil
+        } catch {
+            persistenceErrorMessage = "책 삭제에 실패했습니다."
             showPersistenceErrorAlert = true
         }
     }
