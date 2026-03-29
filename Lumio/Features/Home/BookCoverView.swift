@@ -5,27 +5,26 @@ struct BookCoverView: View {
     let coverImageData: Data?
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 20)
-                .fill(backgroundFill)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            if let coverImageData,
-               let uiImage = UIImage(data: coverImageData) {
-                Image(uiImage: uiImage)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .clipShape(.rect(cornerRadius: 20))
-            } else {
-                Image(systemName: "books.vertical.fill")
-                    .font(.system(size: 28, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.92))
-                    .padding(18)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+        RoundedRectangle(cornerRadius: 20)
+            .fill(backgroundFill)
+            .overlay {
+                Group {
+                    if let coverImageData,
+                       let uiImage = UIImage(data: coverImageData) {
+                        Image(uiImage: uiImage)
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        Image(systemName: "books.vertical.fill")
+                            .font(.system(size: 28, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.92))
+                            .padding(18)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    }
+                }
+                .clipped()
             }
-        }
-        .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity)
         .aspectRatio(0.75, contentMode: .fit)
         .clipShape(.rect(cornerRadius: 20))
         .overlay {
