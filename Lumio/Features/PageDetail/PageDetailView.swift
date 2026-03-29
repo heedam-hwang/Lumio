@@ -81,6 +81,8 @@ struct PageDetailView: View {
     @State private var saveErrorMessage: String?
     @State private var showSaveErrorAlert = false
 
+    private let lookupSheetDetents: Set<PresentationDetent> = [.fraction(0.38)]
+
     private var sortedSentences: [SentenceItem] {
         page.sentences.sorted { $0.order < $1.order }
     }
@@ -122,8 +124,14 @@ struct PageDetailView: View {
         .alert("OCR 처리 실패", isPresented: $showAnalyzeErrorAlert) {} message: {
             Text(analyzeErrorMessage ?? "문장/단어 감지에 실패했습니다.")
         }
-        .sheet(item: $selectedSentenceForSheet, content: SentenceLookupSheet.init)
-        .sheet(item: $selectedWordForSheet, content: WordLookupSheet.init)
+        .sheet(item: $selectedSentenceForSheet) { sentence in
+            SentenceLookupSheet(sentence: sentence)
+                .presentationDetents(lookupSheetDetents)
+        }
+        .sheet(item: $selectedWordForSheet) { word in
+            WordLookupSheet(word: word)
+                .presentationDetents(lookupSheetDetents)
+        }
         .sheet(item: $editingDraft) { draft in
             SentenceEditSheet(
                 draft: draft,
