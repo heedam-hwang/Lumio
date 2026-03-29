@@ -12,6 +12,31 @@ Lumio는 영어 원서를 읽는 사용자를 위한 iOS 읽기 보조 앱입니
 - Save words into a personal vocabulary notebook
 - Organize saved pages by book
 
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center"><strong>Books</strong></td>
+    <td align="center"><strong>Page List</strong></td>
+    <td align="center"><strong>Page Detail</strong></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="./docs/screenshots/books.PNG" alt="Books" width="220"></td>
+    <td align="center"><img src="./docs/screenshots/page_list.PNG" alt="Page List" width="220"></td>
+    <td align="center"><img src="./docs/screenshots/page_detail.PNG" alt="Page Detail" width="220"></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Sentence Meaning</strong></td>
+    <td align="center"><strong>Word Meaning</strong></td>
+    <td align="center"><strong>Vocabulary</strong></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="./docs/screenshots/sentence_meaning.PNG" alt="Sentence Meaning" width="220"></td>
+    <td align="center"><img src="./docs/screenshots/word_meaning.PNG" alt="Word Meaning" width="220"></td>
+    <td align="center"><img src="./docs/screenshots/vocabulary.PNG" alt="Vocabulary" width="220"></td>
+  </tr>
+</table>
+
 ## Read More
 
 - [한국어 README](./README.ko.md)
