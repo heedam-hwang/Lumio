@@ -10,6 +10,8 @@ struct VocabularyView: View {
     @State private var audioGuidanceAlert: AudioGuidanceAlert?
     @State private var saveErrorMessage: String?
     @State private var showSaveErrorAlert = false
+    @State private var editingWord: SavedVocabulary?
+    @State private var meaningDraft = ""
 
     var body: some View {
         Group {
@@ -49,6 +51,15 @@ struct VocabularyView: View {
                                 .frame(width: 44, height: 44)
                             }
                             .buttonStyle(.borderless)
+
+                            Button {
+                                beginMeaningEdit(for: item)
+                            } label: {
+                                Label("\(item.word) 뜻 수정", systemImage: "pencil")
+                                    .labelStyle(.iconOnly)
+                                    .frame(width: 44, height: 44)
+                            }
+                            .buttonStyle(.borderless)
                         }
 
                         if let meaning = item.meaning, !meaning.isEmpty {
@@ -71,6 +82,19 @@ struct VocabularyView: View {
         .onChange(of: scenePhase) { _, newPhase in
             guard newPhase != .active else { return }
             flushPendingRemovals()
+        }
+        .meaningEditAlert(
+            isPresented: Binding(
+                get: { editingWord != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        editingWord = nil
+                    }
+                }
+            ),
+            draft: $meaningDraft
+        ) {
+            saveMeaningEdit()
         }
         .alert("저장 실패", isPresented: $showSaveErrorAlert) {} message: {
             Text(saveErrorMessage ?? "단어장 저장 상태 반영에 실패했습니다.")
@@ -112,6 +136,30 @@ struct VocabularyView: View {
             pendingRemovalWordIDs.removeAll()
         } catch {
             saveErrorMessage = "단어장 변경사항 저장에 실패했습니다."
+            showSaveErrorAlert = true
+        }
+    }
+
+    @MainActor
+    private func beginMeaningEdit(for item: SavedVocabulary) {
+        editingWord = item
+        meaningDraft = item.meaning ?? ""
+    }
+
+    @MainActor
+    private func saveMeaningEdit() {
+        guard let editingWord else { return }
+
+        do {
+            try WordLookupStore.updateMeaningOverride(
+                word: editingWord.word,
+                meaning: meaningDraft,
+                pronunciation: editingWord.pronunciation,
+                context: modelContext
+            )
+            self.editingWord = nil
+        } catch {
+            saveErrorMessage = "뜻 수정 저장에 실패했습니다."
             showSaveErrorAlert = true
         }
     }

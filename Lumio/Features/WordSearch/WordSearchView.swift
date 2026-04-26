@@ -12,6 +12,9 @@ struct WordSearchView: View {
     @State private var saveErrorMessage: String?
     @State private var showSaveErrorAlert = false
     @State private var showClearConfirmation = false
+    @State private var editingRecentWord: String?
+    @State private var recentMeaningDraft = ""
+    @State private var pendingRecentDeletionWord: String?
     @FocusState private var isSearchFieldFocused: Bool
 
     private var savedWordSet: Set<String> {
@@ -38,6 +41,35 @@ struct WordSearchView: View {
             Button("삭제", role: .destructive, action: clearRecentLookups)
         } message: {
             Text("최근 조회한 단어 내역이 모두 삭제됩니다.")
+        }
+        .alert(
+            "이 최근 조회를 삭제할까요?",
+            isPresented: Binding(
+                get: { pendingRecentDeletionWord != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        pendingRecentDeletionWord = nil
+                    }
+                }
+            )
+        ) {
+            Button("취소", role: .cancel) {}
+            Button("삭제", role: .destructive, action: confirmRecentDeletion)
+        } message: {
+            Text("선택한 최근 조회 항목이 삭제됩니다.")
+        }
+        .meaningEditAlert(
+            isPresented: Binding(
+                get: { editingRecentWord != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        editingRecentWord = nil
+                    }
+                }
+            ),
+            draft: $recentMeaningDraft
+        ) {
+            saveRecentMeaningEdit()
         }
         .alert("저장 실패", isPresented: $showSaveErrorAlert) {} message: {
             Text(saveErrorMessage ?? "최근 조회를 업데이트하지 못했습니다.")
@@ -130,18 +162,38 @@ struct WordSearchView: View {
 
             Spacer(minLength: 0)
 
-            Button {
-                toggleRecentSave(item)
-            } label: {
-                Label(
-                    isSaved ? "저장됨" : "저장",
-                    systemImage: isSaved ? "bookmark.fill" : "bookmark"
-                )
-                .labelStyle(.iconOnly)
-                .frame(width: 44, height: 44)
-                .foregroundStyle(Color.accentColor)
+            HStack(spacing: 2) {
+                Button {
+                    beginRecentMeaningEdit(item)
+                } label: {
+                    Label("\(item.word) 뜻 수정", systemImage: "pencil")
+                        .labelStyle(.iconOnly)
+                        .frame(width: 36, height: 36)
+                }
+                .buttonStyle(.borderless)
+
+                Button {
+                    toggleRecentSave(item)
+                } label: {
+                    Label(
+                        isSaved ? "저장됨" : "저장",
+                        systemImage: isSaved ? "bookmark.fill" : "bookmark"
+                    )
+                    .labelStyle(.iconOnly)
+                    .frame(width: 36, height: 36)
+                    .foregroundStyle(Color.accentColor)
+                }
+                .buttonStyle(.borderless)
+
+                Button(role: .destructive) {
+                    beginRecentDeletion(item)
+                } label: {
+                    Label("\(item.word) 삭제", systemImage: "trash")
+                        .labelStyle(.iconOnly)
+                        .frame(width: 36, height: 36)
+                }
+                .buttonStyle(.borderless)
             }
-            .buttonStyle(.borderless)
         }
     }
 
@@ -183,6 +235,53 @@ struct WordSearchView: View {
             )
         } catch {
             saveErrorMessage = "단어장 저장 상태 변경에 실패했습니다."
+            showSaveErrorAlert = true
+        }
+    }
+
+    private func beginRecentMeaningEdit(_ item: RecentWordLookup) {
+        isSearchFieldFocused = false
+        editingRecentWord = item.word
+        recentMeaningDraft = item.editedMeaning ?? item.meaning ?? ""
+    }
+
+    private func saveRecentMeaningEdit() {
+        guard let editingRecentWord else { return }
+
+        do {
+            try WordLookupStore.updateMeaningOverride(
+                word: editingRecentWord,
+                meaning: recentMeaningDraft,
+                context: modelContext
+            )
+            if activeLookupWord == editingRecentWord {
+                activeLookupID = UUID()
+            }
+            self.editingRecentWord = nil
+        } catch {
+            saveErrorMessage = "뜻 수정 저장에 실패했습니다."
+            showSaveErrorAlert = true
+        }
+    }
+
+    private func beginRecentDeletion(_ item: RecentWordLookup) {
+        isSearchFieldFocused = false
+        pendingRecentDeletionWord = item.word
+    }
+
+    private func confirmRecentDeletion() {
+        guard let pendingRecentDeletionWord else { return }
+        isSearchFieldFocused = false
+
+        do {
+            try WordLookupStore.deleteRecentLookup(word: pendingRecentDeletionWord, context: modelContext)
+            if activeLookupWord == pendingRecentDeletionWord {
+                activeLookupWord = nil
+                activeLookupID = UUID()
+            }
+            self.pendingRecentDeletionWord = nil
+        } catch {
+            saveErrorMessage = "최근 조회 삭제에 실패했습니다."
             showSaveErrorAlert = true
         }
     }

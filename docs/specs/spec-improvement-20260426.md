@@ -25,6 +25,8 @@
   - Persist the latest 30 manual word lookups with SwiftData.
   - If the same word is searched again, update the existing record and move it to the top instead of creating a duplicate.
   - Provide a `clear` action to remove the recent lookup list.
+  - Provide an item-level delete action for each recent lookup row.
+  - Provide an item-level `Edit Meaning` action for each recent lookup row.
 
 ### 2.3 Support Vocabulary Save and Cross-Screen Highlight Consistency
 - As-is
@@ -46,6 +48,9 @@
   - If the translated meaning feels incorrect, users cannot adjust it inside the app.
 - To-be
   - Add an `Edit Meaning` action to the current manual lookup result.
+  - Add an `Edit Meaning` action to each recent lookup row.
+  - Add an `Edit Meaning` action to each saved vocabulary row.
+  - The alert shown from current result, recent lookup, and vocabulary must use the same title, copy, input field, and save/cancel actions.
   - The edited meaning is treated as a user override and must be reflected immediately in:
     - the current lookup result
     - the recent lookup history entry
@@ -69,6 +74,11 @@
 - Recent lookup items should show the word, the currently stored meaning, and the last viewed time.
 - Tapping a recent lookup item should reopen it as the current result without creating duplicate history rows.
 - Saved words should remain visually distinguishable in the recent lookup list.
+- Each recent lookup item should expose separate actions for save, edit meaning, and delete.
+
+### 3.4 Shared Meaning Edit Experience
+- The meaning edit interaction should be visually and behaviorally identical across current result, recent lookup, and vocabulary.
+- Vocabulary rows should allow direct meaning correction without leaving the vocabulary screen.
 
 ## 4. Validation Plan
 - Build checks: iOS app build succeeds
@@ -78,7 +88,9 @@
   - recent lookup history persists and keeps at most 30 items
   - repeated lookup of the same word moves the existing record to the top
   - `clear` removes the recent lookup list
+  - item-level delete removes only the selected recent lookup row
   - `Open Web Dictionary` opens the NAVER English Dictionary search URL for the current word
+  - `Edit Meaning` from current result, recent lookup, and vocabulary uses the same alert UI
   - `Edit Meaning` updates the current result, the recent lookup record, and the saved vocabulary record when present
   - saved words still appear highlighted in page detail lookup
 

@@ -142,6 +142,15 @@ enum WordLookupStore {
         try context.save()
     }
 
+    static func deleteRecentLookup(
+        word: String,
+        context: ModelContext
+    ) throws {
+        guard let item = try fetchRecentLookup(word: word, context: context) else { return }
+        context.delete(item)
+        try context.save()
+    }
+
     private static func trimRecentLookupsIfNeeded(
         context: ModelContext,
         keeping keptID: UUID? = nil

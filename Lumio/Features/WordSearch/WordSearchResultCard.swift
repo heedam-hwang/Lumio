@@ -83,15 +83,12 @@ struct WordSearchResultCard: View {
                 }
             }
         }
-        .alert("뜻 수정", isPresented: $showMeaningEditAlert) {
-            TextField("뜻", text: $editedMeaningDraft, axis: .vertical)
-            Button("취소", role: .cancel) {}
-            Button("저장") {
-                model.applyEditedMeaning(editedMeaningDraft, context: modelContext)
-                model.recordRecentLookup(context: modelContext)
-            }
-        } message: {
-            Text("번역 결과가 어색하면 직접 수정해 저장할 수 있습니다.")
+        .meaningEditAlert(
+            isPresented: $showMeaningEditAlert,
+            draft: $editedMeaningDraft
+        ) {
+            model.applyEditedMeaning(editedMeaningDraft, context: modelContext)
+            model.recordRecentLookup(context: modelContext)
         }
         .alert("저장 실패", isPresented: $model.showSaveErrorAlert) {} message: {
             Text(model.saveErrorMessage ?? "단어 조회 데이터를 저장하지 못했습니다.")
