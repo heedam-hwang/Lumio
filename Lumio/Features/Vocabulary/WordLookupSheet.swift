@@ -71,6 +71,8 @@ struct WordLookupSheet: View {
         }
         .task {
             model.refreshSavedState(context: modelContext)
+            model.loadPersistedMeaning(context: modelContext)
+            model.recordRecentLookup(context: modelContext)
         }
         .translationTask(model.translationConfig) { session in
             let word = await MainActor.run {
@@ -82,6 +84,7 @@ struct WordLookupSheet: View {
                 let translatedText = try await translateWord(session: session, text: word)
                 await MainActor.run {
                     model.applyTranslation(translatedText)
+                    model.recordRecentLookup(context: modelContext)
                 }
             } catch {
                 await MainActor.run {

@@ -104,6 +104,86 @@ final class WordLookupModelTests: XCTestCase {
         XCTAssertFalse(model.isSaved)
         XCTAssertEqual(try context.fetch(FetchDescriptor<SavedVocabulary>()).count, 0)
     }
+
+    func testApplyEditedMeaningUpdatesRecentAndSavedVocabulary() throws {
+        let container = try makeInMemoryContainer()
+        let context = ModelContext(container)
+        let model = WordLookupModel(word: VocabularyItem(word: "hello"))
+
+        model.applyTranslation("안녕하세요")
+        model.toggleVocabularyBookmark(context: context)
+        model.applyEditedMeaning("수정된 뜻", context: context)
+        model.recordRecentLookup(context: context)
+
+        let savedItem = try XCTUnwrap(WordLookupStore.fetchSavedVocabulary(word: "hello", context: context))
+        let recentItem = try XCTUnwrap(WordLookupStore.fetchRecentLookup(word: "hello", context: context))
+
+        XCTAssertEqual(model.currentMeaning, "수정된 뜻")
+        XCTAssertEqual(savedItem.meaning, "수정된 뜻")
+        XCTAssertEqual(recentItem.meaning, "수정된 뜻")
+        XCTAssertEqual(recentItem.editedMeaning, "수정된 뜻")
+    }
+}
+
+@MainActor
+final class WordLookupStoreTests: XCTestCase {
+    func testUpsertRecentLookupMovesDuplicateWordToTop() throws {
+        let container = try makeInMemoryContainer()
+        let context = ModelContext(container)
+
+        _ = try WordLookupStore.upsertRecentLookup(
+            word: "apple",
+            meaning: "사과",
+            viewedAt: Date(timeIntervalSince1970: 10),
+            context: context
+        )
+        _ = try WordLookupStore.upsertRecentLookup(
+            word: "banana",
+            meaning: "바나나",
+            viewedAt: Date(timeIntervalSince1970: 20),
+            context: context
+        )
+        _ = try WordLookupStore.upsertRecentLookup(
+            word: "apple",
+            meaning: "사과 수정",
+            viewedAt: Date(timeIntervalSince1970: 30),
+            context: context
+        )
+
+        let items = try context.fetch(
+            FetchDescriptor<RecentWordLookup>(
+                sortBy: [SortDescriptor(\.lastViewedAt, order: .reverse)]
+            )
+        )
+
+        XCTAssertEqual(items.count, 2)
+        XCTAssertEqual(items.map(\.word), ["apple", "banana"])
+        XCTAssertEqual(items.first?.meaning, "사과 수정")
+    }
+
+    func testUpsertRecentLookupKeepsOnlyLatestThirtyItems() throws {
+        let container = try makeInMemoryContainer()
+        let context = ModelContext(container)
+
+        for index in 0...30 {
+            _ = try WordLookupStore.upsertRecentLookup(
+                word: "word\(index)",
+                meaning: "meaning\(index)",
+                viewedAt: Date(timeIntervalSince1970: TimeInterval(index)),
+                context: context
+            )
+        }
+
+        let items = try context.fetch(
+            FetchDescriptor<RecentWordLookup>(
+                sortBy: [SortDescriptor(\.lastViewedAt, order: .reverse)]
+            )
+        )
+
+        XCTAssertEqual(items.count, 30)
+        XCTAssertEqual(items.first?.word, "word30")
+        XCTAssertEqual(items.last?.word, "word1")
+    }
 }
 
 @MainActor
@@ -157,7 +237,7 @@ final class PageSortingTests: XCTestCase {
 }
 
 private func makeInMemoryContainer() throws -> ModelContainer {
-    let schema = Schema([Book.self, Page.self, SentenceItem.self, VocabularyItem.self, SavedVocabulary.self])
+    let schema = Schema([Book.self, Page.self, SentenceItem.self, VocabularyItem.self, SavedVocabulary.self, RecentWordLookup.self])
     let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
     return try ModelContainer(for: schema, configurations: [configuration])
 }

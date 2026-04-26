@@ -9,6 +9,12 @@ struct ContentView: View {
                 HomeView()
             }
 
+            Tab("단어 검색", systemImage: "text.magnifyingglass", value: .wordSearch) {
+                NavigationStack {
+                    WordSearchView()
+                }
+            }
+
             Tab("단어장", systemImage: "book", value: .vocabulary) {
                 NavigationStack {
                     VocabularyView()

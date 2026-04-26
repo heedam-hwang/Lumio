@@ -7,6 +7,8 @@ struct LumioApp: App {
         WindowGroup {
             ContentView()
         }
-        .modelContainer(for: [Book.self, Page.self, SentenceItem.self, VocabularyItem.self, SavedVocabulary.self])
+        .modelContainer(
+            for: [Book.self, Page.self, SentenceItem.self, VocabularyItem.self, SavedVocabulary.self, RecentWordLookup.self]
+        )
     }
 }

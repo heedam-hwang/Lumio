@@ -10,6 +10,8 @@ final class WordLookupModel {
     let translationConfig: TranslationSession.Configuration?
 
     var translatedMeaning = ""
+    var machineTranslatedMeaning: String?
+    var editedMeaning: String?
     var translateError: String?
     var isTranslating = false
     var saveErrorMessage: String?
@@ -34,9 +36,10 @@ final class WordLookupModel {
     }
 
     func applyTranslation(_ text: String) {
-        translatedMeaning = text
+        machineTranslatedMeaning = text
+        translatedMeaning = editedMeaning ?? text
         translateError = nil
-        word.meaning = text
+        word.meaning = translatedMeaning
         isTranslating = false
     }
 
@@ -46,19 +49,80 @@ final class WordLookupModel {
     }
 
     func refreshSavedState(context: ModelContext) {
-        isSaved = (try? existingSavedItem(context: context)) != nil
+        isSaved = (try? WordLookupStore.fetchSavedVocabulary(word: word.word, context: context)) != nil
+    }
+
+    func loadPersistedMeaning(context: ModelContext) {
+        let savedItem = try? WordLookupStore.fetchSavedVocabulary(word: word.word, context: context)
+        let recentLookup = try? WordLookupStore.fetchRecentLookup(word: word.word, context: context)
+
+        let overrideMeaning = recentLookup?.editedMeaning ?? savedItem?.meaning
+        guard let overrideMeaning, !overrideMeaning.isEmpty else { return }
+
+        editedMeaning = overrideMeaning
+        translatedMeaning = overrideMeaning
+        word.meaning = overrideMeaning
+        if let pronunciation = recentLookup?.pronunciation {
+            word.pronunciation = pronunciation
+        }
+    }
+
+    func recordRecentLookup(context: ModelContext) {
+        let displayedMeaning = currentMeaning
+        guard !displayedMeaning.isEmpty || !(word.pronunciation ?? "").isEmpty else { return }
+
+        do {
+            _ = try WordLookupStore.upsertRecentLookup(
+                word: word.word,
+                meaning: displayedMeaning,
+                pronunciation: word.pronunciation,
+                editedMeaning: editedMeaning,
+                context: context
+            )
+        } catch {
+            saveErrorMessage = "최근 조회 저장에 실패했습니다. 다시 시도해 주세요."
+            showSaveErrorAlert = true
+        }
+    }
+
+    func applyEditedMeaning(_ meaning: String, context: ModelContext) {
+        let trimmed = meaning.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        editedMeaning = trimmed
+        translatedMeaning = trimmed
+        word.meaning = trimmed
+        translateError = nil
+
+        do {
+            try WordLookupStore.updateMeaningOverride(
+                word: word.word,
+                meaning: trimmed,
+                pronunciation: word.pronunciation,
+                context: context
+            )
+            refreshSavedState(context: context)
+        } catch {
+            saveErrorMessage = "뜻 수정 저장에 실패했습니다. 다시 시도해 주세요."
+            showSaveErrorAlert = true
+        }
     }
 
     func toggleVocabularyBookmark(context: ModelContext) {
         do {
-            if let existing = try existingSavedItem(context: context) {
+            if let existing = try WordLookupStore.fetchSavedVocabulary(word: word.word, context: context) {
                 context.delete(existing)
                 try context.save()
                 isSaved = false
                 return
             }
 
-            try saveToVocabularyBook(context: context)
+            _ = try WordLookupStore.upsertSavedVocabulary(
+                word: word.word,
+                meaning: currentMeaning,
+                pronunciation: word.pronunciation,
+                context: context
+            )
             isSaved = true
         } catch {
             saveErrorMessage = "단어장 저장 상태 변경에 실패했습니다. 다시 시도해 주세요."
@@ -66,24 +130,7 @@ final class WordLookupModel {
         }
     }
 
-    private func saveToVocabularyBook(context: ModelContext) throws {
-        let currentWord = word.word.lowercased()
-        if let existing = try existingSavedItem(context: context) {
-            existing.meaning = word.meaning
-            try context.save()
-            return
-        }
-
-        let item = SavedVocabulary(word: currentWord, meaning: word.meaning)
-        context.insert(item)
-        try context.save()
-    }
-
-    private func existingSavedItem(context: ModelContext) throws -> SavedVocabulary? {
-        let normalized = word.word.lowercased()
-        let descriptor = FetchDescriptor<SavedVocabulary>()
-        return try context.fetch(descriptor).first(where: { item in
-            item.word.lowercased() == normalized
-        })
+    var currentMeaning: String {
+        translatedMeaning.isEmpty ? (word.meaning ?? "") : translatedMeaning
     }
 }
